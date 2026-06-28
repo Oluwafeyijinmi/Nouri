@@ -1,0 +1,197 @@
+@import "tailwindcss";
+
+:root {
+  --bento-cream: #FAF8F5;
+  --bento-cream-dark: #1C110A;
+  --bento-cream-light: #FAF8F5;
+  --bento-olive: #FDF5EC;
+  --bento-olive-dark: #5C3A21;
+  --bento-olive-border: #EAD2BE;
+  --bento-tan: #FFFDFB;
+  --bento-tan-dark: #D2791B;
+  --bento-tan-border: #FCDCB9;
+  --bento-border: #E8DFD5;
+  --bento-gray: #F2E9DF;
+  --bento-text-primary: #2C1A10;
+  --bento-text-secondary: #4E3525;
+  --bento-text-muted: #8F7A6C;
+  --bento-card-bg: #FFFFFF;
+  --bento-card-bg-elevated: #FAF8F5;
+}
+
+@theme {
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Playfair Display", Georgia, serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --color-bento-cream: var(--bento-cream);
+  --color-bento-cream-dark: var(--bento-cream-dark);
+  --color-bento-cream-light: var(--bento-cream-light);
+  --color-bento-olive: var(--bento-olive);
+  --color-bento-olive-dark: var(--bento-olive-dark);
+  --color-bento-olive-border: var(--bento-olive-border);
+  --color-bento-tan: var(--bento-tan);
+  --color-bento-tan-dark: var(--bento-tan-dark);
+  --color-bento-tan-border: var(--bento-tan-border);
+  --color-bento-border: var(--bento-border);
+  --color-bento-gray: var(--bento-gray);
+  --color-bento-text-primary: var(--bento-text-primary);
+  --color-bento-text-secondary: var(--bento-text-secondary);
+  --color-bento-text-muted: var(--bento-text-muted);
+  --color-bento-card-bg: var(--bento-card-bg);
+  --color-bento-card-bg-elevated: var(--bento-card-bg-elevated);
+
+  --animate-fadeIn: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+
+  @keyframes fadeIn {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+}
+
+/* Custom scrollbar styling to fit the Bento Grid theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bento-cream);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--bento-text-muted);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--bento-olive-dark);
+}
+
+/* Custom animation delay classes */
+.delay-100 { animation-delay: 100ms; }
+.delay-200 { animation-delay: 200ms; }
+.delay-300 { animation-delay: 300ms; }
+
+/* Bento background pattern and custom utility classes */
+body {
+  background-color: var(--bento-cream);
+  color: var(--bento-text-secondary);
+  font-family: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
+.bg-bento-cream {
+  background-color: var(--bento-cream);
+}
+
+.bg-bento-olive {
+  background-color: var(--bento-olive);
+}
+
+.border-bento-olive {
+  border-color: var(--bento-olive-border);
+}
+
+.text-bento-olive-dark {
+  color: var(--bento-olive-dark);
+}
+
+.bg-bento-tan {
+  background-color: var(--bento-tan);
+}
+
+.border-bento-tan {
+  border-color: var(--bento-tan-border);
+}
+
+.text-bento-tan-dark {
+  color: var(--bento-tan-dark);
+}
+
+.border-bento-border {
+  border-color: var(--bento-border);
+}
+
+.bg-bento-gray {
+  background-color: var(--bento-gray);
+}
+
+/* Glassmorphism utilities (Optimized for Sandy Cream Palette) */
+.glass-panel {
+  background-color: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(16px) saturate(120%);
+  -webkit-backdrop-filter: blur(16px) saturate(120%);
+  border: 1px solid rgba(232, 223, 213, 0.5);
+}
+
+.glass-card {
+  background-color: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: 0 8px 32px 0 rgba(147, 129, 116, 0.08);
+}
+
+/* Premium Neomorphic Card styling with organic sand-tinted warm shadows (No plain black) */
+.neomorphic-card {
+  background-color: #FFFFFF;
+  border-radius: 24px;
+  box-shadow: 8px 8px 20px #E5DDD3, -8px -8px 20px #FFFFFF;
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.neomorphic-card:hover {
+  transform: translate3d(0, -2px, 0);
+  box-shadow: 10px 10px 24px #DDD4C8, -10px -10px 24px #FFFFFF;
+}
+
+.neomorphic-inset {
+  background-color: #FAF8F5;
+  box-shadow: inset 3px 3px 6px #E5DDD3, inset -3px -3px 6px #FFFFFF;
+  border: none;
+  outline: none;
+}
+
+.neomorphic-flat {
+  background-color: #FFFFFF;
+  box-shadow: 6px 6px 14px #E5DDD3, -6px -6px 14px #FFFFFF;
+}
+
+.neomorphic-shadow {
+  box-shadow: 6px 6px 14px #E5DDD3, -6px -6px 14px #FFFFFF;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translate3d(0, 0, 0);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+
+.neomorphic-shadow:hover {
+  transform: translate3d(0, -2px, 0);
+  box-shadow: 8px 8px 20px #DDD4C8, -8px -8px 20px #FFFFFF;
+}
+
+.neomorphic-button {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 4px 4px 8px #E5DDD3, -4px -4px 8px #FFFFFF;
+}
+
+.neomorphic-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 5px 5px 10px #DDD4C8, -5px -5px 10px #FFFFFF;
+}
+
+.neomorphic-button:active {
+  transform: translateY(1px);
+  box-shadow: inset 2px 2px 5px #E5DDD3, inset -2px -2px 5px #FFFFFF;
+}
+

@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper to check if a user is signed in
+    function signedIn() {
+      return request.auth != null;
+    }
+    
+    // Helper to check if user is accessing their own data
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    // Helper to check if a user is an admin
+    function isAdmin() {
+      return signedIn() && (
+        request.auth.token.email == 'nourideyforyou@gmail.com' ||
+        request.auth.token.email == 'michaiahomolaso@gmail.com' ||
+        (exists(/databases/$(database)/documents/settings/admins) && 
+         request.auth.token.email in get(/databases/$(database)/documents/settings/admins).data.emails)
+      );
+    }
+    
+    // User profile matching rules
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) || isAdmin();
+    }
+    
+    // Settings matching rules
+    match /settings/{document=**} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Order collection matching rules
+    match /orders/{orderId} {
+      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow update: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow delete: if signedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Menu collection matching rules
+    match /menu/{itemId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

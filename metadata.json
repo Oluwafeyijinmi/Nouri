@@ -1,0 +1,6 @@
+{
+  "name": "Nouri",
+  "description": "Nouri - Wholesome meals and premium snacks made with care for busy working-class individuals. Dinner made easy, delivered fresh from 4:30 PM in Ibadan, Oyo State.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
