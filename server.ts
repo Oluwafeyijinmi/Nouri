@@ -78,6 +78,32 @@ app.post("/api/generate-image", async (req, res) => {
   }
 });
 
+// API Route for Product Description Generation
+app.post("/api/generate-description", async (req, res) => {
+  const { productName } = req.body;
+  if (!productName) {
+    return res.status(400).json({ error: "Product name is required" });
+  }
+
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY is not configured. Please add it to Settings > Secrets.");
+    }
+
+    console.log("Generating description for product:", productName);
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `Write a short, engaging, appetite-inducing description for a premium food product named "${productName}". Keep it to 2-3 sentences. Focus on flavor, ingredients, and the premium experience. Do not write generic introductory text. Just output the description directly.`,
+    });
+
+    const description = response.text?.trim() || "";
+    res.json({ description });
+  } catch (err: any) {
+    console.error("Error generating description:", err);
+    res.status(500).json({ error: err.message || "Failed to generate description" });
+  }
+});
+
 // API Route for AI Meal Recommendations based on Mood & Budget
 app.post("/api/ai-recommend", async (req, res) => {
   const { mood, budget, preference, items } = req.body;

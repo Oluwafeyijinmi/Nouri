@@ -13,10 +13,11 @@ import {
   updateDoc,
   arrayUnion,
   arrayRemove,
-  deleteDoc
+  deleteDoc,
+  increment
 } from 'firebase/firestore';
 import { db } from './firebase';
-import { CustomerDetails, Order as OrderType, MenuItem } from '../types';
+import { CustomerDetails, Order as OrderType, MenuItem, PromoCode } from '../types';
 
 export interface UserProfile {
   uid: string;
@@ -250,5 +251,90 @@ export async function resetMenuToDefaults(): Promise<void> {
   const { MENU_ITEMS } = await import('../data');
   for (const item of MENU_ITEMS) {
     await setDoc(doc(db, 'menu', item.id), removeUndefinedFields(item));
+  }
+}
+
+// --- PROMO CODES FUNCTIONS ---
+
+// Subscribe to all promo codes in real-time
+export function subscribeToPromos(callback: (promos: PromoCode[]) => void): () => void {
+  const promosRef = collection(db, 'settings', 'promos', 'codes');
+  const q = query(promosRef, orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, async (snapshot) => {
+    if (snapshot.empty) {
+      // Seed default promos if none exist
+      const defaultPromos: PromoCode[] = [
+        {
+          code: 'WELCOME10',
+          discountType: 'percentage',
+          discountValue: 10,
+          description: '10% off your first dinner',
+          usageCount: 0,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        },
+        {
+          code: 'BODIJATECH',
+          discountType: 'fixed',
+          discountValue: 1500,
+          description: 'Flat ₦1,500 off',
+          usageCount: 0,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        },
+        {
+          code: 'NOURI-PASS',
+          discountType: 'percentage',
+          discountValue: 15,
+          description: '15% off subscription meal pass',
+          usageCount: 0,
+          isActive: true,
+          createdAt: new Date().toISOString()
+        }
+      ];
+      for (const p of defaultPromos) {
+        await setDoc(doc(db, 'settings', 'promos', 'codes', p.code), p);
+      }
+      callback(defaultPromos);
+    } else {
+      const promos: PromoCode[] = [];
+      snapshot.forEach((docSnap) => {
+        promos.push(docSnap.data() as PromoCode);
+      });
+      callback(promos);
+    }
+  }, (error) => {
+    console.error("Error subscribing to promos:", error);
+  });
+}
+
+// Save or update a promo code
+export async function savePromoCode(promo: PromoCode): Promise<void> {
+  const docRef = doc(db, 'settings', 'promos', 'codes', promo.code.toUpperCase().trim());
+  await setDoc(docRef, removeUndefinedFields({
+    ...promo,
+    code: promo.code.toUpperCase().trim()
+  }));
+}
+
+// Remove a promo code
+export async function removePromoCode(code: string): Promise<void> {
+  const docRef = doc(db, 'settings', 'promos', 'codes', code.toUpperCase().trim());
+  await deleteDoc(docRef);
+}
+
+// Increment promo usage stats
+export async function incrementPromoUsage(code: string): Promise<void> {
+  try {
+    const docRef = doc(db, 'settings', 'promos', 'codes', code.toUpperCase().trim());
+    const docSnap = await getDoc(docRef);
+    if (docSnap.exists()) {
+      await updateDoc(docRef, {
+        usageCount: increment(1)
+      });
+    }
+  } catch (error) {
+    console.error("Error incrementing promo usage:", error);
   }
 }

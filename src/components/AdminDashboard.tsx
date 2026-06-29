@@ -1,4 +1,19 @@
 import React, { useState, useEffect } from 'react';
+import {
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip as ChartTooltip,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  CartesianGrid
+} from 'recharts';
 import { 
   X, 
   CheckCircle, 
@@ -19,9 +34,11 @@ import {
   RefreshCw,
   PlusCircle,
   Check,
-  Sparkles
+  Sparkles,
+  Ticket,
+  Percent
 } from 'lucide-react';
-import { Order as OrderType, MenuItem, SizeOption, ExtraOption, FoodCategory } from '../types';
+import { Order as OrderType, MenuItem, SizeOption, ExtraOption, FoodCategory, PromoCode } from '../types';
 import { 
   getAdminEmails, 
   addAdminEmail, 
@@ -32,7 +49,10 @@ import {
   saveMenuItem,
   deleteMenuItem,
   resetMenuToDefaults,
-  clearAllMenuItems
+  clearAllMenuItems,
+  subscribeToPromos,
+  savePromoCode,
+  removePromoCode
 } from '../lib/db';
 
 const slugify = (text: string) => {
@@ -53,7 +73,7 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'insights'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'insights' | 'promos'>('orders');
   
   // Orders State
   const [orders, setOrders] = useState<OrderType[]>([]);
@@ -64,6 +84,15 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   const [adminEmails, setAdminEmails] = useState<string[]>([]);
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [loadingAdmins, setLoadingAdmins] = useState(true);
+
+  // Promos State
+  const [promos, setPromos] = useState<PromoCode[]>([]);
+  const [loadingPromos, setLoadingPromos] = useState(true);
+  const [newPromoCode, setNewPromoCode] = useState('');
+  const [newPromoType, setNewPromoType] = useState<'percentage' | 'fixed'>('percentage');
+  const [newPromoValue, setNewPromoValue] = useState('');
+  const [newPromoDesc, setNewPromoDesc] = useState('');
+  const [newPromoMax, setNewPromoMax] = useState('');
 
   // Storefront Catalog/Products Management State
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
@@ -79,6 +108,7 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   const [showImageGenerator, setShowImageGenerator] = useState(false);
   const [imagePrompt, setImagePrompt] = useState('');
   const [isGeneratingImage, setIsGeneratingImage] = useState(false);
+  const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
 
   // Form Fields State for Product Editor
@@ -124,12 +154,68 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
         setLoadingAdmins(false);
       });
 
+      // Subscribe to promos
+      setLoadingPromos(true);
+      const unsubscribePromos = subscribeToPromos((fetchedPromos) => {
+        setPromos(fetchedPromos);
+        setLoadingPromos(false);
+      });
+
       return () => {
         unsubscribeOrders();
         unsubscribeMenu();
+        unsubscribePromos();
       };
     }
   }, [isOpen]);
+
+  const handleAddPromo = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newPromoCode) return;
+    
+    const promo: PromoCode = {
+      code: newPromoCode.toUpperCase().trim(),
+      discountType: newPromoType,
+      discountValue: Number(newPromoValue) || 0,
+      description: newPromoDesc || `${newPromoType === 'percentage' ? `${newPromoValue}%` : `₦${newPromoValue}`} discount`,
+      usageCount: 0,
+      isActive: true,
+      maxUses: newPromoMax ? Number(newPromoMax) : undefined,
+      createdAt: new Date().toISOString()
+    };
+    
+    try {
+      await savePromoCode(promo);
+      setNewPromoCode('');
+      setNewPromoType('percentage');
+      setNewPromoValue('');
+      setNewPromoDesc('');
+      setNewPromoMax('');
+    } catch (err) {
+      console.error("Error saving promo code:", err);
+    }
+  };
+
+  const handleTogglePromoStatus = async (promo: PromoCode) => {
+    try {
+      await savePromoCode({
+        ...promo,
+        isActive: !promo.isActive
+      });
+    } catch (err) {
+      console.error("Error toggling promo status:", err);
+    }
+  };
+
+  const handleRemovePromo = async (code: string) => {
+    if (confirm(`Are you sure you want to delete promo code ${code}?`)) {
+      try {
+        await removePromoCode(code);
+      } catch (err) {
+        console.error("Error removing promo code:", err);
+      }
+    }
+  };
 
   const handleEditProduct = (item: MenuItem) => {
     setSelectedProduct(item);
@@ -228,6 +314,82 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
       setImageGenerationError(err.message || 'An error occurred during image generation');
     } finally {
       setIsGeneratingImage(false);
+    }
+  };
+
+  // Get tag suggestions helper functions
+  const getCurrentTagInput = () => {
+    const parts = editTags.split(',');
+    return parts[parts.length - 1].trim();
+  };
+
+  const getTagSuggestions = () => {
+    const currentTyped = getCurrentTagInput().toLowerCase();
+    const existingTags = editTags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    
+    // Default list of useful food tags
+    const defaultSuggestions = ['Spicy', 'Popular', 'Chef Pick', 'New Meal', 'Combo Meal', 'Healthy', 'Gluten Free', 'Swallow', 'Premium Soup', 'Rice Dish', 'Snack', 'Dessert', 'Hot Seller'];
+    
+    // Combine with tags from database menu items
+    const menuTags = menuItems.flatMap(item => item.tags || []);
+    const uniqueCombinedTags = Array.from(new Set([...defaultSuggestions, ...menuTags]));
+    
+    // If not typing anything yet, suggest tags not already added
+    if (!currentTyped) {
+      return uniqueCombinedTags.filter(tag => !existingTags.includes(tag.toLowerCase())).slice(0, 5);
+    }
+    
+    // Filter suggestions based on typed query & exclude already selected ones
+    return uniqueCombinedTags.filter(tag => 
+      tag.toLowerCase().startsWith(currentTyped) && 
+      !existingTags.includes(tag.toLowerCase())
+    ).slice(0, 5);
+  };
+
+  const handleSelectTagSuggestion = (tag: string) => {
+    const parts = editTags.split(',');
+    parts[parts.length - 1] = ' ' + tag; // replace current typed part
+    const newTagsStr = parts.map(p => p.trim()).filter(Boolean).join(', ');
+    setEditTags(newTagsStr + ', '); // Add trailing comma for ease of typing next
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        if (typeof reader.result === 'string') {
+          setEditImage(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!editName.trim()) {
+      alert("Please enter a product name first to generate a description.");
+      return;
+    }
+    setIsGeneratingDescription(true);
+    try {
+      const response = await fetch('/api/generate-description', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ productName: editName.trim() }),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to generate description');
+      }
+      setEditDescription(data.description);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.message || 'An error occurred during description generation');
+    } finally {
+      setIsGeneratingDescription(false);
     }
   };
 
@@ -465,6 +627,19 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
             </button>
             <button
               onClick={() => {
+                setActiveTab('promos');
+                setSelectedProduct(null);
+                setIsNewProduct(false);
+              }}
+              className={`flex items-center gap-2 md:gap-3 px-3.5 md:px-4 py-2.5 md:py-3 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap md:w-full flex-shrink-0 ${
+                activeTab === 'promos' ? 'bg-bento-olive text-bento-olive-dark shadow-sm font-black' : 'text-bento-text-secondary hover:bg-bento-cream'
+              }`}
+            >
+              <Ticket className="w-4 h-4 flex-shrink-0" />
+              Promo Codes
+            </button>
+            <button
+              onClick={() => {
                 setActiveTab('settings');
                 setSelectedProduct(null);
                 setIsNewProduct(false);
@@ -666,7 +841,23 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                         </div>
 
                         <div className="space-y-1.5">
-                          <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Description</label>
+                          <div className="flex justify-between items-center">
+                            <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Description</label>
+                            <button
+                              type="button"
+                              onClick={handleGenerateDescription}
+                              disabled={isGeneratingDescription || !editName.trim()}
+                              className="inline-flex items-center gap-1 text-[9px] font-mono font-bold text-bento-olive-dark hover:text-bento-text-primary border border-bento-border bg-white hover:bg-bento-cream px-2 py-0.5 rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
+                              title="Generate description from product name using AI"
+                            >
+                              {isGeneratingDescription ? (
+                                <RefreshCw className="w-3 h-3 animate-spin text-bento-olive" />
+                              ) : (
+                                <Sparkles className="w-3 h-3 text-bento-olive" />
+                              )}
+                              <span>{isGeneratingDescription ? "Generating..." : "Generate Description"}</span>
+                            </button>
+                          </div>
                           <textarea
                             required
                             placeholder="Describe the meal ingredients, preparation, and size portion details..."
@@ -689,93 +880,73 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                               className="w-full px-4 py-3 rounded-xl border-2 border-bento-border bg-white text-sm text-bento-text-primary focus:outline-none focus:border-bento-text-primary shadow-sm font-sans"
                             />
                           </div>
+
                           <div className="space-y-1.5 relative">
-                            <div className="flex justify-between items-center h-5">
-                              <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Image URL</label>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setShowImageGenerator(!showImageGenerator);
-                                  if (!showImageGenerator) {
-                                    // Generate initial prompt if empty
-                                    setImagePrompt(`Realistic professional food photography of ${editName || 'a delicious meal'}, ${editDescription || 'gourmet plating'}, studio lighting, high resolution, 4k`);
-                                  }
-                                  setImageGenerationError(null);
-                                }}
-                                className="inline-flex items-center gap-1 text-[10px] font-mono font-bold text-bento-olive-dark hover:text-bento-text-primary border-2 border-bento-border bg-white hover:bg-bento-cream px-2 py-0.5 rounded-lg shadow-sm transition-all cursor-pointer select-none"
-                              >
-                                <Sparkles className="w-3 h-3 text-bento-olive" />
-                                <span>{showImageGenerator ? "Hide AI Generator" : "✨ Generate with AI"}</span>
-                              </button>
-                            </div>
-                            <input
-                              type="text"
-                              required
-                              placeholder="https://..."
-                              value={editImage}
-                              onChange={(e) => setEditImage(e.target.value)}
-                              className="w-full px-4 py-3 rounded-xl border-2 border-bento-border bg-white text-sm text-bento-text-primary focus:outline-none focus:border-bento-text-primary shadow-sm font-sans"
-                            />
-
-                            {showImageGenerator && (
-                              <div className="mt-3 p-4 bg-bento-olive/5 border-2 border-bento-olive-border/30 rounded-2xl space-y-3.5 animate-slideIn">
-                                <div className="text-xs font-black text-bento-olive-dark flex items-center gap-1.5 font-mono uppercase tracking-wider">
-                                  <Sparkles className="w-3.5 h-3.5 text-bento-olive-dark animate-pulse" />
-                                  AI Image Generator (Powered by Gemini)
+                            <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Product Image</label>
+                            
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                              {/* File Upload Option */}
+                              <div className="border-2 border-dashed border-bento-border hover:border-bento-text-primary bg-white rounded-xl p-3 flex flex-col items-center justify-center gap-1.5 transition-all text-center relative cursor-pointer group">
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handleImageUpload}
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                />
+                                <div className="p-2 bg-bento-cream rounded-full text-bento-text-secondary group-hover:text-bento-text-primary transition-colors">
+                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
                                 </div>
-                                <div className="space-y-1.5">
-                                  <textarea
-                                    value={imagePrompt}
-                                    onChange={(e) => setImagePrompt(e.target.value)}
-                                    placeholder="Enter prompt for the food item..."
-                                    rows={2}
-                                    className="w-full px-4 py-2.5 border-2 border-bento-border rounded-xl text-xs bg-white text-bento-text-primary focus:outline-none focus:border-bento-text-primary shadow-sm font-sans"
-                                  />
-                                  <p className="text-[9px] text-bento-text-muted font-medium italic">
-                                    Tip: Provide descriptive plating details for the best culinary representation.
-                                  </p>
+                                <div>
+                                  <span className="text-[10px] font-bold text-bento-text-primary block">Upload from Device</span>
+                                  <span className="text-[8px] text-bento-text-muted">Drag & drop or click to browse</span>
                                 </div>
+                              </div>
 
-                                {imageGenerationError && (
-                                  <div className="text-xs font-bold text-red-600 bg-red-50 border-2 border-red-100 p-2.5 rounded-xl">
-                                    {imageGenerationError}
-                                  </div>
+                              {/* Paste Link Option */}
+                              <div className="space-y-1 bg-white border-2 border-bento-border rounded-xl p-3 flex flex-col justify-center">
+                                <span className="text-[9px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Or Paste Image URL</span>
+                                <input
+                                  type="text"
+                                  placeholder="https://example.com/meal.jpg"
+                                  value={editImage.startsWith('data:image/') ? '' : editImage}
+                                  onChange={(e) => setEditImage(e.target.value)}
+                                  className="w-full px-2.5 py-1.5 rounded-lg border border-bento-border bg-white text-xs text-bento-text-primary focus:outline-none focus:ring-1 focus:ring-bento-text-primary font-sans"
+                                />
+                                {editImage.startsWith('data:image/') && (
+                                  <span className="text-[8px] font-mono text-green-600 font-bold">✓ Image uploaded successfully</span>
                                 )}
+                              </div>
+                            </div>
 
-                                <div className="flex justify-end gap-2.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setShowImageGenerator(false)}
-                                    className="px-4 py-2 text-[10px] font-black uppercase tracking-wider text-bento-text-primary hover:bg-bento-cream rounded-xl transition-all border-2 border-transparent hover:border-bento-border cursor-pointer"
-                                  >
-                                    Cancel
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={handleGenerateImage}
-                                    disabled={isGeneratingImage}
-                                    className="bg-bento-text-primary text-bento-cream px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-opacity-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50 select-none shadow-sm transition-all border-2 border-transparent"
-                                  >
-                                    {isGeneratingImage ? (
-                                      <>
-                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                                        <span>Generating...</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Sparkles className="w-3.5 h-3.5 text-bento-olive" />
-                                        <span>Generate Image</span>
-                                      </>
-                                    )}
-                                  </button>
+                            {/* Small preview block */}
+                            {editImage && (
+                              <div className="flex items-center gap-3 mt-2 p-2 bg-bento-cream/25 border border-bento-border rounded-xl bg-white">
+                                <img 
+                                  src={editImage} 
+                                  alt="Product preview" 
+                                  className="w-10 h-10 rounded-lg object-cover border border-bento-border bg-white" 
+                                  referrerPolicy="no-referrer"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-[9px] font-bold text-bento-text-secondary block truncate">Active Image Selected</span>
+                                  <span className="text-[8px] font-mono text-bento-text-muted block truncate">
+                                    {editImage.startsWith('data:image/') ? 'Base64 Device Asset' : editImage}
+                                  </span>
                                 </div>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditImage('')}
+                                  className="text-[9px] font-mono font-bold text-red-500 hover:text-red-700 bg-white hover:bg-red-50 px-2 py-1 rounded border border-bento-border transition-colors cursor-pointer"
+                                >
+                                  Clear
+                                </button>
                               </div>
                             )}
                           </div>
                         </div>
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center pt-2">
-                          <div className="space-y-1.5">
+                          <div className="space-y-1.5 relative">
                             <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Tags (comma-separated)</label>
                             <input
                               type="text"
@@ -784,6 +955,22 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                               onChange={(e) => setEditTags(e.target.value)}
                               className="w-full px-4 py-3 rounded-xl border-2 border-bento-border bg-white text-sm text-bento-text-primary focus:outline-none focus:border-bento-text-primary shadow-sm font-sans"
                             />
+                            {/* Tags Suggestion Pills */}
+                            {getTagSuggestions().length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 pt-1">
+                                <span className="text-[9px] font-bold text-bento-text-muted self-center font-mono uppercase tracking-wider mr-1">Suggestions:</span>
+                                {getTagSuggestions().map((tag) => (
+                                  <button
+                                    key={tag}
+                                    type="button"
+                                    onClick={() => handleSelectTagSuggestion(tag)}
+                                    className="px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-bento-olive-dark hover:text-white bg-bento-olive/10 hover:bg-bento-olive-dark rounded-md transition-all cursor-pointer select-none border border-bento-border/30"
+                                  >
+                                    + {tag}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 mt-6 p-3.5 bg-bento-cream/20 border-2 border-dashed border-bento-border rounded-xl">
                             <input
@@ -1083,13 +1270,18 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                 .reduce((sum, o) => sum + o.total, 0);
 
               const pendingRevenue = orders
-                .filter(o => o.status !== 'Delivered')
+                .filter(o => o.status !== 'Delivered' && o.status !== 'Cancelled')
                 .reduce((sum, o) => sum + o.total, 0);
 
               const totalDelivered = orders.filter(o => o.status === 'Delivered').length;
               const totalInTransit = orders.filter(o => o.status === 'In Transit').length;
               const totalPreparing = orders.filter(o => o.status === 'Preparing').length;
               const totalReceived = orders.filter(o => o.status === 'Received').length;
+              
+              const cancelledOrdersCount = orders.filter(o => o.status === 'Cancelled').length;
+              const totalCancellationFees = orders
+                .filter(o => o.status === 'Cancelled')
+                .reduce((sum, o) => sum + (o.cancellationFee || 0), 0);
 
               // Meal popularity ranking
               const itemCounts: { [name: string]: { count: number, revenue: number, category: string, img: string } } = {};
@@ -1131,6 +1323,61 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
 
               const totalSlotsCount = Object.values(timeSlots).reduce((a, b) => a + b, 0) || 1;
 
+              // --- CHART DATA GENERATION ---
+              
+              // 1. Revenue Trends over time
+              const sortedOrdersForChart = [...orders]
+                .filter(o => o.status === 'Delivered' && o.timestamp)
+                .sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || ''));
+
+              const revenueTrendMap: { [date: string]: number } = {};
+              sortedOrdersForChart.forEach(order => {
+                const date = new Date(order.timestamp!).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+                revenueTrendMap[date] = (revenueTrendMap[date] || 0) + order.total;
+              });
+
+              const revenueChartData = Object.entries(revenueTrendMap).map(([date, revenue]) => ({
+                date,
+                Revenue: revenue,
+              }));
+
+              const finalRevenueData = revenueChartData.length > 0 ? revenueChartData : [
+                { date: 'Mon', Revenue: 25000 },
+                { date: 'Tue', Revenue: 34000 },
+                { date: 'Wed', Revenue: 21000 },
+                { date: 'Thu', Revenue: 45000 },
+                { date: 'Fri', Revenue: 52000 },
+              ];
+
+              // 2. Category Distribution
+              const categorySales: { [cat: string]: number } = {};
+              orders.forEach(order => {
+                order.items.forEach(item => {
+                  const cat = item.menuItem.category || 'Swallow';
+                  categorySales[cat] = (categorySales[cat] || 0) + item.quantity;
+                });
+              });
+
+              const categoryChartData = Object.entries(categorySales).map(([name, value]) => ({
+                name: name.toUpperCase(),
+                value
+              }));
+
+              const finalCategoryData = categoryChartData.length > 0 ? categoryChartData : [
+                { name: 'RICE', value: 12 },
+                { name: 'SWALLOW', value: 8 },
+                { name: 'SOUP', value: 15 },
+                { name: 'SNACK', value: 5 },
+              ];
+
+              // 3. Promo Usage Chart Data
+              const promoChartData = promos.map(p => ({
+                code: p.code,
+                Redemptions: p.usageCount,
+              }));
+
+              const CHART_COLORS = ['#4D602D', '#D0602F', '#588157', '#A3B18A', '#3A5A40', '#E9C46A', '#F4A261'];
+
               return (
                 <div className="space-y-6 animate-fadeIn" id="admin-insights-container">
                   <div className="flex items-center justify-between">
@@ -1144,7 +1391,7 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                   </div>
 
                   {/* Metrics Bento Grid */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="insights-metrics-bento">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" id="insights-metrics-bento">
                     <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-revenue">
                       <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Completed Revenue</span>
                       <h4 className="text-xl font-black text-bento-olive-dark">₦{totalRevenue.toLocaleString()}</h4>
@@ -1154,7 +1401,13 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                     <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-pending">
                       <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Pipeline Revenue</span>
                       <h4 className="text-xl font-black text-orange-600">₦{pendingRevenue.toLocaleString()}</h4>
-                      <p className="text-[9px] text-bento-text-muted">From {orders.length - totalDelivered} active bookings</p>
+                      <p className="text-[9px] text-bento-text-muted">From {orders.length - totalDelivered - cancelledOrdersCount} active bookings</p>
+                    </div>
+
+                    <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-cancellation">
+                      <span className="text-[10px] font-mono font-bold text-red-500 uppercase tracking-wider block">Cancellation Recovery</span>
+                      <h4 className="text-xl font-black text-red-600">₦{totalCancellationFees.toLocaleString()}</h4>
+                      <p className="text-[9px] text-bento-text-muted">From {cancelledOrdersCount} cancelled orders</p>
                     </div>
 
                     <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-active-orders">
@@ -1169,6 +1422,78 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                       <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Total Bookings</span>
                       <h4 className="text-xl font-black text-bento-text-primary">{orders.length} dinners</h4>
                       <p className="text-[9px] text-bento-text-muted">All-time order volume</p>
+                    </div>
+                  </div>
+
+                  {/* Charts Grid Row */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Revenue Trends Chart (Area Chart) */}
+                    <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4 shadow-sm">
+                      <div>
+                        <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Completed Revenue Trend</h4>
+                        <p className="text-[10px] text-bento-text-muted font-mono">Daily delivered dinner earnings</p>
+                      </div>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={finalRevenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#4D602D" stopOpacity={0.3}/>
+                                <stop offset="95%" stopColor="#4D602D" stopOpacity={0}/>
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                            <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} fontStyle="bold" tickLine={false} />
+                            <YAxis stroke="#94a3b8" fontSize={10} fontStyle="bold" tickLine={false} axisLine={false} tickFormatter={(v) => `₦${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                            <ChartTooltip 
+                              formatter={(value: any) => [`₦${Number(value).toLocaleString()}`, 'Revenue']}
+                              contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '12px' }}
+                            />
+                            <Area type="monotone" dataKey="Revenue" stroke="#4D602D" strokeWidth={2.5} fillOpacity={1} fill="url(#colorRevenue)" />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </div>
+
+                    {/* Category Sales Distribution (Pie Chart) */}
+                    <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4 shadow-sm">
+                      <div>
+                        <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Meal Category Breakdown</h4>
+                        <p className="text-[10px] text-bento-text-muted font-mono">Volume distribution by culinary categories</p>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                        <div className="sm:col-span-7 h-56">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={finalCategoryData}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={60}
+                                outerRadius={80}
+                                paddingAngle={5}
+                                dataKey="value"
+                              >
+                                {finalCategoryData.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <ChartTooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '12px' }} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        </div>
+                        <div className="sm:col-span-5 space-y-2">
+                          {finalCategoryData.map((item, index) => (
+                            <div key={item.name} className="flex items-center justify-between text-xs font-bold text-bento-text-secondary">
+                              <div className="flex items-center gap-2">
+                                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}></span>
+                                <span className="uppercase tracking-wider text-[10px]">{item.name}</span>
+                              </div>
+                              <span className="font-mono text-bento-text-primary">{item.value} units</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
 
@@ -1210,41 +1535,232 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                       </div>
                     </div>
 
-                    {/* Preferred Delivery Time slots */}
-                    <div className="lg:col-span-5 bg-white border border-bento-border rounded-2xl p-5 space-y-4" id="slots-distribution-card">
-                      <div>
-                        <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Delivery Window Distribution</h4>
-                        <p className="text-[10px] text-bento-text-muted font-mono">Customer preferences for delivery schedules</p>
+                    {/* Delivery Time and Promo Codes Impact */}
+                    <div className="lg:col-span-5 space-y-6">
+                      {/* Delivery Window Distribution */}
+                      <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4" id="slots-distribution-card">
+                        <div>
+                          <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Delivery Window Distribution</h4>
+                          <p className="text-[10px] text-bento-text-muted font-mono">Customer preferences for delivery schedules</p>
+                        </div>
+
+                        <div className="space-y-4 pt-2">
+                          {Object.entries(timeSlots).map(([slot, count]) => {
+                            const percentage = Math.round((count / totalSlotsCount) * 100);
+                            return (
+                              <div key={slot} className="space-y-1.5">
+                                <div className="flex justify-between items-center text-xs font-bold text-bento-text-secondary">
+                                  <span className="truncate">{slot === '4:30 PM - 6:00 PM' ? 'Early Dinner' : slot === '6:00 PM - 7:30 PM' ? 'Standard' : 'Late Dinner'} <span className="text-[10px] font-normal text-bento-text-muted">({slot})</span></span>
+                                  <span className="font-mono text-bento-olive-dark">{percentage}% ({count})</span>
+                                </div>
+                                <div className="h-2 bg-bento-cream rounded-full overflow-hidden border border-bento-border/50">
+                                  <div 
+                                    className="h-full bg-bento-olive-dark rounded-full transition-all duration-500"
+                                    style={{ width: `${percentage}%` }}
+                                  ></div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
 
-                      <div className="space-y-4 pt-2">
-                        {Object.entries(timeSlots).map(([slot, count]) => {
-                          const percentage = Math.round((count / totalSlotsCount) * 100);
-                          return (
-                            <div key={slot} className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs font-bold text-bento-text-secondary">
-                                <span className="truncate">{slot === '4:30 PM - 6:00 PM' ? 'Early Dinner' : slot === '6:00 PM - 7:30 PM' ? 'Standard' : 'Late Dinner'} <span className="text-[10px] font-normal text-bento-text-muted">({slot})</span></span>
-                                <span className="font-mono text-bento-olive-dark">{percentage}% ({count})</span>
-                              </div>
-                              <div className="h-2 bg-bento-cream rounded-full overflow-hidden border border-bento-border/50">
-                                <div 
-                                  className="h-full bg-bento-olive-dark rounded-full transition-all duration-500"
-                                  style={{ width: `${percentage}%` }}
-                                ></div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-
-                      <div className="bg-bento-olive/5 border border-bento-olive/20 rounded-xl p-3 text-[10px] text-bento-olive-dark leading-relaxed font-medium mt-4">
-                        💡 **Chef Recommendation**: Use this schedule density to prep ingredients in advance. Highly congested time windows require dedicated Express Carriers!
+                      {/* Promo Code Redemptions Bar Chart */}
+                      <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4 shadow-sm">
+                        <div>
+                          <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Campaign Redemptions</h4>
+                          <p className="text-[10px] text-bento-text-muted font-mono">Redemption counts by promotional codes</p>
+                        </div>
+                        <div className="h-40">
+                          {promoChartData.length === 0 ? (
+                            <div className="text-center py-10 text-xs text-bento-text-muted italic">No campaign data available.</div>
+                          ) : (
+                            <ResponsiveContainer width="100%" height="100%">
+                              <BarChart data={promoChartData} layout="vertical" margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                                <XAxis type="number" stroke="#94a3b8" fontSize={9} fontStyle="bold" tickLine={false} />
+                                <YAxis type="category" dataKey="code" stroke="#94a3b8" fontSize={9} fontStyle="bold" tickLine={false} />
+                                <ChartTooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '11px' }} />
+                                <Bar dataKey="Redemptions" fill="#4D602D" radius={[0, 4, 4, 0]} barSize={12} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
               );
             })()}
+
+            {activeTab === 'promos' && (
+              <div className="space-y-6 animate-fadeIn">
+                <div>
+                  <h3 className="font-black text-lg text-bento-text-primary uppercase tracking-tight mb-1">Promotional Codes</h3>
+                  <p className="text-xs text-bento-text-muted font-mono">Create discount campaigns, track user redemptions, and view promotion statistics.</p>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Create New Promo Code Form (Bento Card) */}
+                  <div className="lg:col-span-4 bg-white border border-bento-border rounded-2xl p-5 space-y-4 h-fit">
+                    <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Create Campaign</h4>
+                    
+                    <form onSubmit={handleAddPromo} className="space-y-3.5">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Promo Code *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. DINNER50"
+                          value={newPromoCode}
+                          onChange={(e) => setNewPromoCode(e.target.value.toUpperCase().replace(/\s+/g, ''))}
+                          className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs font-mono font-bold uppercase focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Type *</label>
+                          <select
+                            value={newPromoType}
+                            onChange={(e) => setNewPromoType(e.target.value as 'percentage' | 'fixed')}
+                            className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                          >
+                            <option value="percentage">Percentage (%)</option>
+                            <option value="fixed">Fixed (₦)</option>
+                          </select>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Value *</label>
+                          <input
+                            type="number"
+                            required
+                            min="1"
+                            placeholder={newPromoType === 'percentage' ? "15" : "1500"}
+                            value={newPromoValue}
+                            onChange={(e) => setNewPromoValue(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Description</label>
+                        <input
+                          type="text"
+                          placeholder="e.g. Get 15% off your order"
+                          value={newPromoDesc}
+                          onChange={(e) => setNewPromoDesc(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Max Uses (Optional)</label>
+                        <input
+                          type="number"
+                          placeholder="No Limit"
+                          value={newPromoMax}
+                          onChange={(e) => setNewPromoMax(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                        />
+                      </div>
+
+                      <button type="submit" className="w-full bg-bento-olive-dark text-bento-cream py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-opacity-90 flex items-center justify-center gap-2">
+                        <Plus className="w-4 h-4" /> Create Campaign
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Campaign Statistics and List (Bento Card) */}
+                  <div className="lg:col-span-8 bg-white border border-bento-border rounded-2xl p-5 space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Campaign Performance & Stats</h4>
+                      <span className="text-[10px] font-mono text-bento-text-muted font-bold">{promos.length} total codes</span>
+                    </div>
+
+                    <div className="space-y-4 overflow-y-auto max-h-[50vh] pr-2">
+                      {loadingPromos ? (
+                        <div className="text-center py-10 text-xs font-mono text-bento-text-muted animate-pulse">Loading campaigns...</div>
+                      ) : promos.length === 0 ? (
+                        <div className="text-center py-10 text-xs text-bento-text-muted italic font-mono">No campaigns found. Create one on the left.</div>
+                      ) : (
+                        promos.map((p) => {
+                          const hasLimit = p.maxUses && p.maxUses > 0;
+                          const usagePercent = hasLimit ? Math.round((p.usageCount / p.maxUses!) * 100) : 0;
+                          return (
+                            <div key={p.code} className="p-4 border border-bento-border rounded-xl space-y-3 hover:border-bento-olive/40 transition-colors bg-white">
+                              <div className="flex items-start justify-between">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2.5">
+                                    <span className="font-mono text-xs font-black tracking-wide text-bento-text-primary uppercase bg-bento-cream px-2.5 py-1 rounded border border-bento-border">
+                                      {p.code}
+                                    </span>
+                                    <span className={`text-[9px] font-mono font-bold uppercase px-2 py-0.5 rounded-full ${
+                                      p.discountType === 'percentage' 
+                                        ? 'bg-purple-50 text-purple-600 border border-purple-200' 
+                                        : 'bg-green-50 text-green-600 border border-green-200'
+                                    }`}>
+                                      {p.discountType === 'percentage' ? `${p.discountValue}% Off` : `₦${p.discountValue.toLocaleString()} Off`}
+                                    </span>
+                                    {!p.isActive && (
+                                      <span className="text-[9px] font-mono font-bold uppercase bg-red-50 text-red-500 border border-red-200 px-2 py-0.5 rounded-full">
+                                        Inactive
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-xs font-medium text-bento-text-secondary">{p.description}</p>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleTogglePromoStatus(p)}
+                                    className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider border transition-colors cursor-pointer ${
+                                      p.isActive
+                                        ? 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100'
+                                        : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'
+                                    }`}
+                                  >
+                                    {p.isActive ? 'Active' : 'Paused'}
+                                  </button>
+                                  <button
+                                    onClick={() => handleRemovePromo(p.code)}
+                                    className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                                    title="Delete Promo"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Progress bar / redemption stats */}
+                              <div className="space-y-1">
+                                <div className="flex justify-between items-center text-[10px] font-mono font-bold text-bento-text-muted">
+                                  <span>Total Redemptions</span>
+                                  <span className="text-bento-text-secondary">
+                                    {p.usageCount} {hasLimit ? `/ ${p.maxUses} max` : 'uses'}
+                                  </span>
+                                </div>
+                                {hasLimit && (
+                                  <div className="h-1.5 bg-bento-cream rounded-full overflow-hidden border border-bento-border/50">
+                                    <div 
+                                      className={`h-full rounded-full transition-all duration-500 ${
+                                        usagePercent > 85 ? 'bg-red-500' : 'bg-bento-olive-dark'
+                                      }`}
+                                      style={{ width: `${Math.min(100, usagePercent)}%` }}
+                                    ></div>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {activeTab === 'settings' && (
               <div className="space-y-8 max-w-2xl">

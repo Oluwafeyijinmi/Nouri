@@ -63,3 +63,15 @@ export interface PlannedMeal {
   sizeName?: string;
   notes?: string;
 }
+
+export interface PromoCode {
+  code: string;               // Uppercase unique code, e.g. "WELCOME10"
+  discountType: 'percentage' | 'fixed';
+  discountValue: number;      // e.g., 10 for percentage, 1500 for fixed Naira
+  description: string;        // Explanation of the code
+  usageCount: number;         // Statistics: how many times used
+  maxUses?: number;           // Optional maximum usage limit
+  isActive: boolean;          // Is active or disabled
+  createdAt: string;          // ISO Date
+}
+

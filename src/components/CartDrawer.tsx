@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Trash2, Plus, Minus, ShoppingBag, Clock, HelpCircle, ArrowRight } from 'lucide-react';
-import { CartItem } from '../types';
+import { CartItem, PromoCode } from '../types';
+import { subscribeToPromos } from '../lib/db';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -21,6 +22,7 @@ export default function CartDrawer({
   onProceedToCheckout,
   onOpenPlanner
 }: CartDrawerProps) {
+  const [promos, setPromos] = React.useState<PromoCode[]>([]);
   const [promoInput, setPromoInput] = React.useState('');
   const [promoError, setPromoError] = React.useState('');
   const [activePromo, setActivePromo] = React.useState<string>(() => {
@@ -28,6 +30,13 @@ export default function CartDrawer({
     if (isSubActive) return 'NOURI-PASS';
     return localStorage.getItem('nouri_promo_code') || '';
   });
+
+  React.useEffect(() => {
+    const unsubscribe = subscribeToPromos((fetchedPromos) => {
+      setPromos(fetchedPromos);
+    });
+    return unsubscribe;
+  }, []);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -52,10 +61,18 @@ export default function CartDrawer({
   const getPromoDiscount = () => {
     if (!activePromo) return 0;
     const code = activePromo.toUpperCase().trim();
-    if (code === 'NOURI-PASS') return Math.round(subtotal * 0.15);
-    if (code === 'WELCOME10') return Math.round(subtotal * 0.10);
-    if (code === 'BODIJATECH') return Math.min(1500, subtotal);
-    return 0;
+    const match = promos.find(p => p.code === code && p.isActive);
+    if (!match) {
+      if (code === 'NOURI-PASS') return Math.round(subtotal * 0.15);
+      if (code === 'WELCOME10') return Math.round(subtotal * 0.10);
+      if (code === 'BODIJATECH') return Math.min(1500, subtotal);
+      return 0;
+    }
+    if (match.discountType === 'percentage') {
+      return Math.round(subtotal * (match.discountValue / 100));
+    } else {
+      return Math.min(match.discountValue, subtotal);
+    }
   };
 
   const discount = getPromoDiscount();
@@ -283,13 +300,19 @@ export default function CartDrawer({
                         type="button"
                         onClick={() => {
                           const code = promoInput.toUpperCase().trim();
-                          if (['WELCOME10', 'NOURI-PASS', 'BODIJATECH'].includes(code)) {
+                          const match = promos.find(p => p.code === code && p.isActive);
+                          if (match) {
+                            setActivePromo(code);
+                            localStorage.setItem('nouri_promo_code', code);
+                            setPromoInput('');
+                            setPromoError('');
+                          } else if (['WELCOME10', 'NOURI-PASS', 'BODIJATECH'].includes(code)) {
                             setActivePromo(code);
                             localStorage.setItem('nouri_promo_code', code);
                             setPromoInput('');
                             setPromoError('');
                           } else {
-                            setPromoError('Invalid code. Use WELCOME10 or BODIJATECH.');
+                            setPromoError('Invalid or inactive promo code.');
                           }
                         }}
                         className="bg-bento-text-primary hover:bg-bento-olive-dark text-bento-cream font-bold px-4 py-1.5 rounded-xl text-xs cursor-pointer transition-colors"

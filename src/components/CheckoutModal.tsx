@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, MapPin, Truck, Check, HelpCircle, Phone, CreditCard, ChevronRight, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Users, Share2, Copy, Sparkles, CheckCircle } from 'lucide-react';
-import { CartItem, CustomerDetails, Order } from '../types';
+import { CartItem, CustomerDetails, Order, PromoCode } from '../types';
 import { auth } from '../lib/firebase';
-import { getUserProfile, saveOrder, saveUserProfile, subscribeToOrder, cancelOrderInDb } from '../lib/db';
+import { getUserProfile, saveOrder, saveUserProfile, subscribeToOrder, cancelOrderInDb, subscribeToPromos, incrementPromoUsage } from '../lib/db';
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -46,11 +46,19 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
   const [trafficLevel, setTrafficLevel] = useState<TrafficLevel>('moderate');
 
   // Active Promo Code State
+  const [promos, setPromos] = useState<PromoCode[]>([]);
   const [activePromo, setActivePromo] = useState<string>(() => {
     const isSubActive = localStorage.getItem('nouri_subscription_active') === 'true';
     if (isSubActive) return 'NOURI-PASS';
     return localStorage.getItem('nouri_promo_code') || '';
   });
+
+  useEffect(() => {
+    const unsubscribe = subscribeToPromos((fetchedPromos) => {
+      setPromos(fetchedPromos);
+    });
+    return unsubscribe;
+  }, []);
 
   // Keep promo code synced on open
   useEffect(() => {
@@ -238,10 +246,18 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
   const getPromoDiscount = () => {
     if (!activePromo) return 0;
     const code = activePromo.toUpperCase().trim();
-    if (code === 'NOURI-PASS') return Math.round(subtotal * 0.15);
-    if (code === 'WELCOME10') return Math.round(subtotal * 0.10);
-    if (code === 'BODIJATECH') return Math.min(1500, subtotal);
-    return 0;
+    const match = promos.find(p => p.code === code && p.isActive);
+    if (!match) {
+      if (code === 'NOURI-PASS') return Math.round(subtotal * 0.15);
+      if (code === 'WELCOME10') return Math.round(subtotal * 0.10);
+      if (code === 'BODIJATECH') return Math.min(1500, subtotal);
+      return 0;
+    }
+    if (match.discountType === 'percentage') {
+      return Math.round(subtotal * (match.discountValue / 100));
+    } else {
+      return Math.min(match.discountValue, subtotal);
+    }
   };
 
   const discount = getPromoDiscount();
@@ -273,6 +289,9 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
     const user = auth.currentUser;
     if (user) {
       saveOrder(user.uid, newOrder).catch((err) => console.error("Error saving order: ", err));
+      if (activePromo) {
+        incrementPromoUsage(activePromo).catch((err) => console.error("Error incrementing promo usage: ", err));
+      }
       saveUserProfile(user.uid, {
         name: formData.name,
         phone: formData.phone,
