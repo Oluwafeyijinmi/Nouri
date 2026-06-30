@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ShoppingBag, Clock, MapPin, Calendar, BookOpen, LogIn, User, Shield, Bell, X } from 'lucide-react';
-import { CartItem, Order } from '../types';
+import { ShoppingBag, Clock, MapPin, Calendar, BookOpen, LogIn, User, Shield, Bell, X, Sparkles, Check, Trash2, Gift, MessageSquare, Sun, Moon } from 'lucide-react';
+import { CartItem, Order, PushNotification } from '../types';
+import { listenToNotifications, markNotificationAsRead, deleteNotification } from '../lib/notificationService';
 
 interface HeaderProps {
   cart: CartItem[];
@@ -12,6 +13,8 @@ interface HeaderProps {
   isAdmin?: boolean;
   user: any; // Firebase user object
   orders?: Order[];
+  darkMode: boolean;
+  onToggleDarkMode: () => void;
 }
 
 export default function Header({ 
@@ -23,7 +26,9 @@ export default function Header({
   onOpenAdmin,
   isAdmin,
   user,
-  orders = []
+  orders = [],
+  darkMode,
+  onToggleDarkMode
 }: HeaderProps) {
   const totalCartItems = cart.reduce((acc, item) => acc + item.quantity, 0);
 
@@ -37,6 +42,73 @@ export default function Header({
   const [animateCart, setAnimateCart] = useState(false);
   const prevOrdersRef = useRef<Order[]>([]);
   const prevCartCountRef = useRef(0);
+
+  // Push Notifications hub states
+  const [notifications, setNotifications] = useState<PushNotification[]>([]);
+  const [isNotifTrayOpen, setIsNotifTrayOpen] = useState(false);
+  const [livePushAlert, setLivePushAlert] = useState<PushNotification | null>(null);
+  const notifTrayRef = useRef<HTMLDivElement>(null);
+
+  // Close notification tray on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (notifTrayRef.current && !notifTrayRef.current.contains(event.target as Node)) {
+        setIsNotifTrayOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Listen to secure, real-time push notifications
+  useEffect(() => {
+    if (!user) {
+      setNotifications([]);
+      return;
+    }
+
+    const unsubscribe = listenToNotifications(user.uid, (newList) => {
+      setNotifications((prevList) => {
+        // Trigger push chime sound and pop-up banner on new arrivals
+        if (prevList.length > 0 && newList.length > prevList.length) {
+          const newest = newList[0];
+          // Check that it's a genuine new push alert we haven't seen in this browser instance
+          if (newest && !prevList.some(n => n.id === newest.id)) {
+            setLivePushAlert(newest);
+            
+            // Audio sound chime
+            try {
+              const chime = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+              chime.volume = 0.4;
+              chime.play();
+            } catch (audioErr) {
+              console.log("Audio feedback blocked:", audioErr);
+            }
+
+            // Auto-dismiss popup banner after 7 seconds
+            const timer = setTimeout(() => {
+              setLivePushAlert(null);
+            }, 7000);
+            return () => clearTimeout(timer);
+          }
+        }
+        return newList;
+      });
+    });
+
+    return () => unsubscribe();
+  }, [user]);
+
+  const unreadCount = notifications.filter(n => !n.read).length;
+
+  const handleMarkAllAsRead = async () => {
+    const unread = notifications.filter(n => !n.read);
+    await Promise.all(unread.map(n => markNotificationAsRead(n.id)));
+  };
+
+  const handleClearAllNotifications = async () => {
+    await Promise.all(notifications.map(n => deleteNotification(n.id)));
+  };
 
   // Monitor order status updates
   useEffect(() => {
@@ -237,6 +309,129 @@ export default function Header({
             </button>
           )}
 
+          {/* Notification Bell with Badge & Dropdown Tray */}
+          {user && (
+            <div className="relative" ref={notifTrayRef} id="push-notification-bell-container">
+              <button
+                onClick={() => setIsNotifTrayOpen(!isNotifTrayOpen)}
+                className={`p-2.5 rounded-2xl border border-bento-border bg-white text-bento-text-primary hover:bg-bento-cream transition-all cursor-pointer relative flex items-center justify-center`}
+                title="Notifications"
+                id="notification-hub-btn"
+              >
+                <Bell className="w-5 h-5 text-bento-text-primary" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black w-4.5 h-4.5 rounded-full flex items-center justify-center shadow-sm border border-white animate-pulse">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Dropdown Tray */}
+              {isNotifTrayOpen && (
+                <div 
+                  className="absolute right-0 mt-2.5 w-80 sm:w-96 bg-white border-2 border-bento-border rounded-2xl shadow-xl z-50 overflow-hidden font-sans"
+                  id="notifications-tray-dropdown"
+                >
+                  {/* Tray Header */}
+                  <div className="p-3.5 bg-bento-cream/60 border-b border-bento-border flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="w-4 h-4 text-bento-olive-dark" />
+                      <span className="text-[10px] font-black text-bento-text-primary uppercase tracking-widest">Notification Center</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-[9px] font-black uppercase font-mono">
+                      {unreadCount > 0 && (
+                        <button 
+                          onClick={handleMarkAllAsRead}
+                          className="text-bento-olive-dark hover:underline cursor-pointer"
+                        >
+                          Mark read
+                        </button>
+                      )}
+                      {notifications.length > 0 && (
+                        <button 
+                          onClick={handleClearAllNotifications}
+                          className="text-red-600 hover:underline cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Tray Body */}
+                  <div className="max-h-[320px] overflow-y-auto divide-y divide-bento-border/40">
+                    {notifications.length === 0 ? (
+                      <div className="p-8 text-center text-bento-text-muted">
+                        <Bell className="w-8 h-8 mx-auto mb-2 opacity-30 animate-pulse" />
+                        <p className="text-xs font-bold">No notifications yet</p>
+                        <p className="text-[10px] font-medium mt-1">Status updates and promos will appear here.</p>
+                      </div>
+                    ) : (
+                      notifications.map((notif) => (
+                        <div 
+                          key={notif.id} 
+                          className={`p-3 flex gap-2.5 transition-colors hover:bg-bento-cream/20 ${!notif.read ? 'bg-bento-cream/30 font-semibold border-l-4 border-l-bento-olive-dark' : ''}`}
+                        >
+                          {/* Type Icon */}
+                          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                            notif.type === 'promo' ? 'bg-red-50 text-red-500' : 'bg-bento-olive/10 text-bento-olive-dark'
+                          }`}>
+                            {notif.type === 'promo' ? <Gift className="w-3.5 h-3.5" /> : <Clock className="w-3.5 h-3.5" />}
+                          </div>
+
+                          {/* Message Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-1">
+                              <h4 className="text-xs font-bold text-bento-text-primary truncate">{notif.title}</h4>
+                              <span className="text-[8px] font-mono text-bento-text-muted shrink-0">
+                                {new Date(notif.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-[10px] text-bento-text-secondary leading-normal mt-0.5 break-words">
+                              {notif.body}
+                            </p>
+                            
+                            {/* Action Buttons inside notification */}
+                            <div className="flex items-center gap-3 mt-1.5">
+                              {!notif.read && (
+                                <button
+                                  onClick={() => markNotificationAsRead(notif.id)}
+                                  className="text-[8px] font-bold uppercase font-mono text-bento-olive-dark hover:underline flex items-center gap-0.5"
+                                >
+                                  <Check className="w-2.5 h-2.5" /> Read
+                                </button>
+                              )}
+                              <button
+                                onClick={() => deleteNotification(notif.id)}
+                                className="text-[8px] font-bold uppercase font-mono text-bento-text-muted hover:text-red-600 flex items-center gap-0.5"
+                              >
+                                <Trash2 className="w-2.5 h-2.5" /> Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Theme Toggle Button */}
+          <button
+            onClick={onToggleDarkMode}
+            className="p-2.5 rounded-2xl border border-bento-border bg-bento-card-bg text-bento-text-primary hover:bg-bento-cream transition-all cursor-pointer flex items-center justify-center shadow-sm"
+            title={darkMode ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            id="theme-toggle-btn"
+          >
+            {darkMode ? (
+              <Sun className="w-5 h-5 text-amber-500 animate-pulse" />
+            ) : (
+              <Moon className="w-5 h-5 text-bento-text-primary" />
+            )}
+          </button>
+
           {/* Mobile Planner Trigger */}
           <button 
             onClick={onOpenPlanner}
@@ -334,6 +529,36 @@ export default function Header({
           </div>
         </div>
       </div>
+
+      {/* Floating Global Slide-In Push Notification Banner */}
+      {livePushAlert && (
+        <div 
+          className="fixed top-6 right-6 max-w-sm w-full bg-white border-2 border-bento-border rounded-2xl shadow-2xl z-50 overflow-hidden animate-slideIn border-l-4 border-l-bento-olive-dark p-4 flex gap-3.5"
+          id="global-push-notification-toast"
+        >
+          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-sm ${
+            livePushAlert.type === 'promo' ? 'bg-red-50 text-red-500' : 'bg-bento-olive/15 text-bento-olive-dark'
+          }`}>
+            {livePushAlert.type === 'promo' ? <Gift className="w-5 h-5" /> : <Sparkles className="w-5 h-5 text-bento-olive-dark" />}
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between">
+              <span className="text-[9px] font-black text-bento-olive-dark uppercase tracking-widest font-mono">
+                {livePushAlert.type === 'promo' ? '🎁 Premium Offer' : '🔔 Nouri Push Alert'}
+              </span>
+              <button 
+                onClick={() => setLivePushAlert(null)}
+                className="text-bento-text-muted hover:text-bento-text-primary p-0.5 hover:bg-bento-cream rounded-lg transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <h3 className="text-xs font-black text-bento-text-primary mt-1">{livePushAlert.title}</h3>
+            <p className="text-[11px] text-bento-text-secondary mt-1 leading-normal">{livePushAlert.body}</p>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

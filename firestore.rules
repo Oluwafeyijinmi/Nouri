@@ -45,5 +45,16 @@ service cloud.firestore {
       allow read: if true;
       allow write: if isAdmin();
     }
+
+    // FCM tokens mapping matching rules
+    match /fcm_tokens/{tokenId} {
+      allow read, write: if signedIn() && (request.resource.data.userId == request.auth.uid || resource.data.userId == request.auth.uid || isAdmin());
+    }
+
+    // Push notification matching rules
+    match /push_notifications/{notificationId} {
+      allow read: if signedIn() && (resource.data.userId in [request.auth.uid, 'all'] || isAdmin());
+      allow write: if isAdmin();
+    }
   }
 }

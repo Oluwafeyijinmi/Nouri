@@ -48,6 +48,33 @@
         "deliveryName": { "type": "string" }
       },
       "required": ["orderId", "userId", "items", "total", "status", "createdAt"]
+    },
+    "FCMToken": {
+      "title": "FCM Device Token",
+      "description": "Token mapping for Firebase Cloud Messaging push registrations",
+      "type": "object",
+      "properties": {
+        "token": { "type": "string" },
+        "userId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["token", "userId"]
+    },
+    "PushNotification": {
+      "title": "Push Notification",
+      "description": "Sent push notification message for order updates and promo campaigns",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "type": { "type": "string", "enum": ["order_update", "promo"] },
+        "sentAt": { "type": "string" },
+        "read": { "type": "boolean" },
+        "orderId": { "type": "string" }
+      },
+      "required": ["id", "userId", "title", "body", "type", "sentAt"]
     }
   },
   "firestore": {
@@ -62,6 +89,14 @@
     "menu/{itemId}": {
       "schema": "MenuItem",
       "description": "Storefront products and prices"
+    },
+    "fcm_tokens/{tokenId}": {
+      "schema": "FCMToken",
+      "description": "Active push notification registration tokens"
+    },
+    "push_notifications/{notificationId}": {
+      "schema": "PushNotification",
+      "description": "Sent in-app and push notifications history"
     }
   }
 }

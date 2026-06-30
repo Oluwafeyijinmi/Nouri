@@ -75,3 +75,16 @@ export interface PromoCode {
   createdAt: string;          // ISO Date
 }
 
+export interface PushNotification {
+  id: string;
+  userId: string;             // User UID or "all" for broadcast promos
+  title: string;
+  body: string;
+  type: 'order_update' | 'promo';
+  sentAt: string;             // ISO String
+  read: boolean;
+  orderId?: string;
+  userEmail?: string;         // optional tracking info
+}
+
+

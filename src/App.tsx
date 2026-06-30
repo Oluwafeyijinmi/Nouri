@@ -31,6 +31,25 @@ export default function App() {
   const [activeUser, setActiveUser] = useState<FirebaseUser | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [userOrders, setUserOrders] = useState<Order[]>([]);
+  const [darkMode, setDarkMode] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('theme');
+      if (saved) return saved === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }
+    return false;
+  });
+
+  // Toggle HTML dark class whenever darkMode changes
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('theme', 'light');
+    }
+  }, [darkMode]);
 
   // Listen to active user's orders in real-time
   useEffect(() => {
@@ -69,6 +88,15 @@ export default function App() {
     });
     return () => unsubscribe();
   }, []);
+
+  // Register FCM / push notification tokens when activeUser changes
+  useEffect(() => {
+    if (activeUser) {
+      import('./lib/notificationService').then(({ requestPushPermission }) => {
+        requestPushPermission(activeUser.uid, activeUser.email);
+      });
+    }
+  }, [activeUser]);
 
   // Re-populates cart with elements from a past order
   const handleReorder = (items: CartItem[]) => {
@@ -193,6 +221,8 @@ export default function App() {
         isAdmin={isAdmin}
         user={activeUser}
         orders={userOrders}
+        darkMode={darkMode}
+        onToggleDarkMode={() => setDarkMode(prev => !prev)}
       />
 
       {/* 2. Hero banner */}

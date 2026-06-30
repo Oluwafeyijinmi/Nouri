@@ -36,9 +36,16 @@ import {
   Check,
   Sparkles,
   Ticket,
-  Percent
+  Percent,
+  TrendingUp,
+  AlertCircle,
+  ArrowUpRight,
+  Activity,
+  Send,
+  Bell
 } from 'lucide-react';
 import { Order as OrderType, MenuItem, SizeOption, ExtraOption, FoodCategory, PromoCode } from '../types';
+import { sendPushNotification, getRegisteredDevices } from '../lib/notificationService';
 import { 
   getAdminEmails, 
   addAdminEmail, 
@@ -73,7 +80,7 @@ interface AdminDashboardProps {
 }
 
 export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'insights' | 'promos'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'products' | 'settings' | 'insights' | 'promos' | 'notifications'>('orders');
   
   // Orders State
   const [orders, setOrders] = useState<OrderType[]>([]);
@@ -111,6 +118,65 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   const [isGeneratingDescription, setIsGeneratingDescription] = useState(false);
   const [imageGenerationError, setImageGenerationError] = useState<string | null>(null);
 
+  // Push Notifications Management State
+  const [devices, setDevices] = useState<{ userId: string; userEmail: string; token: string; updatedAt: string }[]>([]);
+  const [loadingDevices, setLoadingDevices] = useState(false);
+  const [notifTitle, setNotifTitle] = useState('');
+  const [notifBody, setNotifBody] = useState('');
+  const [notifTarget, setNotifTarget] = useState('all'); // 'all' or user UID
+  const [notifType, setNotifType] = useState<'promo' | 'order_update'>('promo');
+  const [sendingNotif, setSendingNotif] = useState(false);
+  const [notifSuccessMsg, setNotifSuccessMsg] = useState('');
+  const [notifErrorMsg, setNotifErrorMsg] = useState('');
+
+  // Load registered device tokens for notifications tab
+  useEffect(() => {
+    if (activeTab === 'notifications') {
+      setLoadingDevices(true);
+      getRegisteredDevices()
+        .then((data) => {
+          setDevices(data);
+          setLoadingDevices(false);
+        })
+        .catch((err) => {
+          console.error("Error loading registered devices:", err);
+          setLoadingDevices(false);
+        });
+    }
+  }, [activeTab]);
+
+  const handleSendNotification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!notifTitle || !notifBody) {
+      setNotifErrorMsg('Title and body are required');
+      return;
+    }
+    setSendingNotif(true);
+    setNotifSuccessMsg('');
+    setNotifErrorMsg('');
+
+    try {
+      let targetEmail = null;
+      if (notifTarget !== 'all') {
+        const found = devices.find(d => d.userId === notifTarget);
+        if (found) targetEmail = found.userEmail;
+      } else {
+        targetEmail = 'all';
+      }
+
+      await sendPushNotification(notifTarget, targetEmail, notifTitle, notifBody, notifType);
+      
+      setNotifSuccessMsg(`Push Notification successfully sent to ${notifTarget === 'all' ? 'all users' : targetEmail || notifTarget}!`);
+      setNotifTitle('');
+      setNotifBody('');
+    } catch (err) {
+      console.error("Failed to send notification:", err);
+      setNotifErrorMsg('Failed to dispatch notification. Please check database connection.');
+    } finally {
+      setSendingNotif(false);
+    }
+  };
+
   // Form Fields State for Product Editor
   const [editId, setEditId] = useState('');
   const [editName, setEditName] = useState('');
@@ -118,7 +184,8 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   const [editCategory, setEditCategory] = useState<FoodCategory>('rice');
   const [editPrice, setEditPrice] = useState(0);
   const [editImage, setEditImage] = useState('');
-  const [editTags, setEditTags] = useState('');
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
   const [editIsPopular, setEditIsPopular] = useState(false);
   
   // Custom Lists for Sizes and Extras inside Editor
@@ -226,7 +293,8 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
     setEditCategory(item.category);
     setEditPrice(item.price);
     setEditImage(item.image);
-    setEditTags(item.tags ? item.tags.join(', ') : '');
+    setEditTags(item.tags || []);
+    setTagInput('');
     setEditIsPopular(item.isPopular || false);
     setEditSizes(item.sizes || []);
     setEditExtras(item.extras || []);
@@ -270,7 +338,8 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
     setEditCategory('rice');
     setEditPrice(0);
     setEditImage('https://images.unsplash.com/photo-1546069901-ba9599a7e63c?auto=format&fit=crop&w=600&q=80');
-    setEditTags('');
+    setEditTags([]);
+    setTagInput('');
     setEditIsPopular(false);
     setEditSizes([]);
     setEditExtras([]);
@@ -318,14 +387,9 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   };
 
   // Get tag suggestions helper functions
-  const getCurrentTagInput = () => {
-    const parts = editTags.split(',');
-    return parts[parts.length - 1].trim();
-  };
-
   const getTagSuggestions = () => {
-    const currentTyped = getCurrentTagInput().toLowerCase();
-    const existingTags = editTags.split(',').map(t => t.trim().toLowerCase()).filter(Boolean);
+    const currentTyped = tagInput.trim().toLowerCase();
+    const existingTags = editTags.map(t => t.toLowerCase());
     
     // Default list of useful food tags
     const defaultSuggestions = ['Spicy', 'Popular', 'Chef Pick', 'New Meal', 'Combo Meal', 'Healthy', 'Gluten Free', 'Swallow', 'Premium Soup', 'Rice Dish', 'Snack', 'Dessert', 'Hot Seller'];
@@ -347,10 +411,59 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   };
 
   const handleSelectTagSuggestion = (tag: string) => {
-    const parts = editTags.split(',');
-    parts[parts.length - 1] = ' ' + tag; // replace current typed part
-    const newTagsStr = parts.map(p => p.trim()).filter(Boolean).join(', ');
-    setEditTags(newTagsStr + ', '); // Add trailing comma for ease of typing next
+    if (!editTags.map(t => t.toLowerCase()).includes(tag.toLowerCase())) {
+      setEditTags([...editTags, tag]);
+    }
+    setTagInput('');
+  };
+
+  const addTag = (value: string) => {
+    const cleanValue = value.trim();
+    if (!cleanValue) return;
+    if (!editTags.map(t => t.toLowerCase()).includes(cleanValue.toLowerCase())) {
+      setEditTags([...editTags, cleanValue]);
+    }
+  };
+
+  const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const val = tagInput.trim().replace(/,$/, '');
+      if (val) {
+        addTag(val);
+        setTagInput('');
+      }
+    } else if (e.key === 'Backspace' && !tagInput && editTags.length > 0) {
+      setEditTags(editTags.slice(0, -1));
+    }
+  };
+
+  const handleTagBlur = () => {
+    const val = tagInput.trim();
+    if (val) {
+      addTag(val);
+      setTagInput('');
+    }
+  };
+
+  const handleTagPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    e.preventDefault();
+    const pasteData = e.clipboardData.getData('text');
+    const tags = pasteData.split(/[,\n;]+/).map(t => t.trim()).filter(Boolean);
+    if (tags.length > 0) {
+      const updatedTags = [...editTags];
+      tags.forEach(tag => {
+        if (!updatedTags.map(t => t.toLowerCase()).includes(tag.toLowerCase())) {
+          updatedTags.push(tag);
+        }
+      });
+      setEditTags(updatedTags);
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (indexToRemove: number) => {
+    setEditTags(editTags.filter((_, idx) => idx !== indexToRemove));
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -401,9 +514,7 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
     }
     setSavingProduct(true);
     try {
-      const tagsArray = editTags
-        ? editTags.split(',').map(t => t.trim()).filter(Boolean)
-        : [];
+      const tagsArray = editTags;
       
       const updatedProduct: MenuItem = {
         id: editId,
@@ -544,8 +655,16 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     try {
       await updateOrderStatus(orderId, newStatus);
+      
+      // Auto-dispatch beautiful status change push notification to user
+      const targetOrder = orders.find(o => o.id === orderId) as any;
+      if (targetOrder && targetOrder.userId) {
+        const title = `🍲 Order Status Update!`;
+        const body = `Your Nouri order #${orderId.slice(0, 6).toUpperCase()} is now [${newStatus}].`;
+        await sendPushNotification(targetOrder.userId, targetOrder.customer?.email || null, title, body, 'order_update', orderId);
+      }
     } catch (err) {
-      console.error(err);
+      console.error("Failed to update status or send FCM push:", err);
       alert('Failed to update status');
     }
   };
@@ -637,6 +756,19 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
             >
               <Ticket className="w-4 h-4 flex-shrink-0" />
               Promo Codes
+            </button>
+            <button
+              onClick={() => {
+                setActiveTab('notifications');
+                setSelectedProduct(null);
+                setIsNewProduct(false);
+              }}
+              className={`flex items-center gap-2 md:gap-3 px-3.5 md:px-4 py-2.5 md:py-3 rounded-xl text-xs md:text-sm font-bold transition-all whitespace-nowrap md:w-full flex-shrink-0 ${
+                activeTab === 'notifications' ? 'bg-bento-olive text-bento-olive-dark shadow-sm font-black' : 'text-bento-text-secondary hover:bg-bento-cream'
+              }`}
+            >
+              <Bell className="w-4 h-4 flex-shrink-0 text-bento-olive-dark" />
+              Push Alerts
             </button>
             <button
               onClick={() => {
@@ -947,14 +1079,35 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center pt-2">
                           <div className="space-y-1.5 relative">
-                            <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Tags (comma-separated)</label>
-                            <input
-                              type="text"
-                              placeholder="Spicy, Popular, Chef Pick"
-                              value={editTags}
-                              onChange={(e) => setEditTags(e.target.value)}
-                              className="w-full px-4 py-3 rounded-xl border-2 border-bento-border bg-white text-sm text-bento-text-primary focus:outline-none focus:border-bento-text-primary shadow-sm font-sans"
-                            />
+                            <label className="block text-[10px] font-black text-bento-text-primary uppercase tracking-widest font-mono">Tags</label>
+                            <div className="w-full min-h-[46px] p-2 flex flex-wrap gap-1.5 rounded-xl border-2 border-bento-border bg-white text-sm text-bento-text-primary focus-within:border-bento-olive-dark focus-within:ring-2 focus-within:ring-bento-olive/20 shadow-xs font-sans transition-all duration-200">
+                              {editTags.map((tag, idx) => (
+                                <span 
+                                  key={`${tag}-${idx}`} 
+                                  className="inline-flex items-center gap-1.5 bg-bento-cream/60 hover:bg-bento-cream border border-bento-border/80 text-[11px] font-bold text-bento-text-primary px-2.5 py-1 rounded-lg select-none transition-colors"
+                                >
+                                  {tag}
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveTag(idx)}
+                                    className="text-bento-text-muted hover:text-red-600 font-black cursor-pointer ml-0.5 leading-none w-3.5 h-3.5 rounded-full hover:bg-red-50 flex items-center justify-center text-xs transition-colors"
+                                    title="Remove tag"
+                                  >
+                                    ×
+                                  </button>
+                                </span>
+                              ))}
+                              <input
+                                type="text"
+                                placeholder={editTags.length === 0 ? "Type and press Enter, comma, or paste list..." : "Add tag..."}
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                onKeyDown={handleTagInputKeyDown}
+                                onBlur={handleTagBlur}
+                                onPaste={handleTagPaste}
+                                className="flex-1 min-w-[140px] bg-transparent outline-none border-none py-1 px-1 text-xs text-bento-text-primary placeholder:text-bento-text-muted/60"
+                              />
+                            </div>
                             {/* Tags Suggestion Pills */}
                             {getTagSuggestions().length > 0 && (
                               <div className="flex flex-wrap gap-1.5 pt-1">
@@ -1376,92 +1529,230 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                 Redemptions: p.usageCount,
               }));
 
-              const CHART_COLORS = ['#4D602D', '#D0602F', '#588157', '#A3B18A', '#3A5A40', '#E9C46A', '#F4A261'];
+              const CHART_COLORS = ['#5C3A21', '#D2791B', '#8F7A6C', '#EAD2BE', '#4D602D', '#D0602F', '#F4A261'];
+
+              // Compute additional smart business insights locally
+              const topMeal = popularMeals[0];
+              const peakSlotName = Object.entries(timeSlots).sort((a,b) => b[1] - a[1])[0]?.[0] || '6:00 PM - 7:30 PM';
+              const topPromo = promoChartData.sort((a,b) => b.Redemptions - a.Redemptions)[0];
+              const conversionRate = orders.length > 0 ? Math.round((totalDelivered / orders.length) * 100) : 0;
 
               return (
-                <div className="space-y-6 animate-fadeIn" id="admin-insights-container">
-                  <div className="flex items-center justify-between">
+                <div className="space-y-8 animate-fadeIn" id="admin-insights-container">
+                  {/* Dashboard Header */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-bento-olive/10 border-2 border-bento-border/50 rounded-3xl p-6 shadow-sm">
                     <div>
-                      <h3 className="font-black text-lg text-bento-text-primary uppercase tracking-tight">Real-Time Store Insights</h3>
-                      <p className="text-xs text-bento-text-muted">Live performance analytics based on current bookings</p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="p-1.5 bg-bento-olive-dark/10 rounded-lg text-bento-olive-dark">
+                          <Activity className="w-5 h-5" />
+                        </span>
+                        <h3 className="font-black text-xl text-bento-text-primary uppercase tracking-tight font-sans">Store Performance Console</h3>
+                      </div>
+                      <p className="text-xs text-bento-text-secondary font-sans font-medium">Real-time revenue flows, dinner booking volumes, and kitchen analytics.</p>
                     </div>
-                    <span className="text-[10px] font-mono text-bento-olive-dark bg-bento-olive/15 px-3 py-1.5 rounded-full font-bold uppercase tracking-wider animate-pulse flex items-center gap-1">
-                      ● Live Syncing Active
-                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="text-[10px] font-mono text-emerald-800 bg-emerald-100/80 border border-emerald-200 px-3 py-1.5 rounded-full font-black uppercase tracking-wider animate-pulse flex items-center gap-1.5">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
+                        Live telemetry synchronized
+                      </span>
+                    </div>
                   </div>
 
                   {/* Metrics Bento Grid */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4" id="insights-metrics-bento">
-                    <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-revenue">
-                      <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Completed Revenue</span>
-                      <h4 className="text-xl font-black text-bento-olive-dark">₦{totalRevenue.toLocaleString()}</h4>
-                      <p className="text-[9px] text-bento-text-muted">From {totalDelivered} completed orders</p>
-                    </div>
-
-                    <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-pending">
-                      <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Pipeline Revenue</span>
-                      <h4 className="text-xl font-black text-orange-600">₦{pendingRevenue.toLocaleString()}</h4>
-                      <p className="text-[9px] text-bento-text-muted">From {orders.length - totalDelivered - cancelledOrdersCount} active bookings</p>
-                    </div>
-
-                    <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-cancellation">
-                      <span className="text-[10px] font-mono font-bold text-red-500 uppercase tracking-wider block">Cancellation Recovery</span>
-                      <h4 className="text-xl font-black text-red-600">₦{totalCancellationFees.toLocaleString()}</h4>
-                      <p className="text-[9px] text-bento-text-muted">From {cancelledOrdersCount} cancelled orders</p>
-                    </div>
-
-                    <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-active-orders">
-                      <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Active Kitchen Feed</span>
-                      <h4 className="text-xl font-black text-blue-600">{totalReceived + totalPreparing + totalInTransit} orders</h4>
-                      <div className="text-[9px] text-bento-text-muted flex gap-1">
-                        <span>{totalReceived} rec</span> • <span>{totalPreparing} prep</span> • <span>{totalInTransit} transit</span>
+                    
+                    {/* Metric: Completed Revenue */}
+                    <div className="bg-white border-2 border-bento-border rounded-2xl p-4.5 space-y-3.5 hover:border-bento-olive-dark hover:-translate-y-0.5 transition-all duration-300 shadow-sm relative group overflow-hidden" id="metric-revenue">
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-bento-olive/5 rounded-full -mr-6 -mt-6 group-hover:scale-110 transition-transform duration-500"></div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-widest">Completed Revenue</span>
+                        <span className="p-1.5 bg-emerald-50 text-emerald-700 rounded-lg border border-emerald-100">
+                          <TrendingUp className="w-4 h-4" />
+                        </span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h4 className="text-2xl font-black text-bento-olive-dark">₦{totalRevenue.toLocaleString()}</h4>
+                        <p className="text-[9px] font-mono text-bento-text-muted font-bold uppercase tracking-wider">
+                          {totalDelivered} Delivered Dinner{totalDelivered !== 1 ? 's' : ''}
+                        </p>
                       </div>
                     </div>
 
-                    <div className="bg-white border border-bento-border rounded-2xl p-4 space-y-1.5" id="metric-conversion">
-                      <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-wider block">Total Bookings</span>
-                      <h4 className="text-xl font-black text-bento-text-primary">{orders.length} dinners</h4>
-                      <p className="text-[9px] text-bento-text-muted">All-time order volume</p>
+                    {/* Metric: Pipeline Revenue */}
+                    <div className="bg-white border-2 border-bento-border rounded-2xl p-4.5 space-y-3.5 hover:border-bento-olive-dark hover:-translate-y-0.5 transition-all duration-300 shadow-sm relative group overflow-hidden" id="metric-pending">
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-orange-50/10 rounded-full -mr-6 -mt-6 group-hover:scale-110 transition-transform duration-500"></div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-widest">Pipeline Revenue</span>
+                        <span className="p-1.5 bg-orange-50 text-orange-600 rounded-lg border border-orange-100">
+                          <Clock className="w-4 h-4" />
+                        </span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h4 className="text-2xl font-black text-orange-600">₦{pendingRevenue.toLocaleString()}</h4>
+                        <p className="text-[9px] font-mono text-bento-text-muted font-bold uppercase tracking-wider">
+                          {orders.length - totalDelivered - cancelledOrdersCount} Active Bookings
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Metric: Cancellation Recovery */}
+                    <div className="bg-white border-2 border-bento-border rounded-2xl p-4.5 space-y-3.5 hover:border-bento-olive-dark hover:-translate-y-0.5 transition-all duration-300 shadow-sm relative group overflow-hidden" id="metric-cancellation">
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-red-50/10 rounded-full -mr-6 -mt-6 group-hover:scale-110 transition-transform duration-500"></div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-mono font-bold text-red-500 uppercase tracking-widest">Cancelled Fees</span>
+                        <span className="p-1.5 bg-red-50 text-red-600 rounded-lg border border-red-100">
+                          <AlertCircle className="w-4 h-4" />
+                        </span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h4 className="text-2xl font-black text-red-600">₦{totalCancellationFees.toLocaleString()}</h4>
+                        <p className="text-[9px] font-mono text-bento-text-muted font-bold uppercase tracking-wider">
+                          {cancelledOrdersCount} Cancelled Dinners
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Metric: Active Kitchen Feed */}
+                    <div className="bg-white border-2 border-bento-border rounded-2xl p-4.5 space-y-3.5 hover:border-bento-olive-dark hover:-translate-y-0.5 transition-all duration-300 shadow-sm relative group overflow-hidden" id="metric-active-orders">
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-blue-50/10 rounded-full -mr-6 -mt-6 group-hover:scale-110 transition-transform duration-500"></div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-widest">Active Kitchen</span>
+                        <span className="p-1.5 bg-blue-50 text-blue-600 rounded-lg border border-blue-100">
+                          <Truck className="w-4 h-4" />
+                        </span>
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-2xl font-black text-blue-600">{totalReceived + totalPreparing + totalInTransit} orders</h4>
+                        <div className="flex flex-wrap gap-1 text-[8px] font-mono font-bold uppercase tracking-wider">
+                          <span className="bg-amber-50 text-amber-800 px-1 py-0.5 rounded border border-amber-200">{totalReceived} Rec</span>
+                          <span className="bg-orange-50 text-orange-800 px-1 py-0.5 rounded border border-orange-200">{totalPreparing} Prep</span>
+                          <span className="bg-blue-50 text-blue-800 px-1 py-0.5 rounded border border-blue-200">{totalInTransit} Out</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Metric: Total Volume */}
+                    <div className="bg-white border-2 border-bento-border rounded-2xl p-4.5 space-y-3.5 hover:border-bento-olive-dark hover:-translate-y-0.5 transition-all duration-300 shadow-sm relative group overflow-hidden" id="metric-conversion">
+                      <div className="absolute right-0 top-0 w-24 h-24 bg-bento-cream/10 rounded-full -mr-6 -mt-6 group-hover:scale-110 transition-transform duration-500"></div>
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] font-mono font-bold text-bento-text-muted uppercase tracking-widest">Total Bookings</span>
+                        <span className="p-1.5 bg-bento-cream border border-bento-border text-bento-text-primary rounded-lg">
+                          <ShoppingBag className="w-4 h-4" />
+                        </span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <h4 className="text-2xl font-black text-bento-text-primary">{orders.length} dinners</h4>
+                        <p className="text-[9px] font-mono text-bento-text-muted font-bold uppercase tracking-wider">
+                          {conversionRate}% Delivery Rate
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AI Smart Business Advice & Kitchen Recommendation Panel */}
+                  <div className="bg-gradient-to-r from-bento-olive/15 via-bento-tan/30 to-bento-cream border-2 border-bento-border rounded-3xl p-6 shadow-sm space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-bento-tan-dark animate-pulse" />
+                      <h4 className="font-sans text-xs font-black uppercase tracking-widest text-bento-olive-dark font-mono">Kitchen Optimization & Operational Strategy (AI Advices)</h4>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4.5">
+                      {/* Operational Advice 1: Supply Planning */}
+                      <div className="bg-white border border-bento-border/70 p-4 rounded-2xl flex gap-3 shadow-2xs hover:shadow-xs transition-shadow">
+                        <div className="p-2 h-fit bg-bento-olive/40 text-bento-olive-dark rounded-xl border border-bento-border">
+                          <ShoppingBag className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-bento-text-muted">Ingredient Supply advice</span>
+                          <p className="text-xs font-bold text-bento-text-primary leading-tight">
+                            {topMeal ? (
+                              <>Demand is peaking for <span className="text-bento-olive-dark underline decoration-2 decoration-bento-border">{topMeal.name}</span>. Secure raw materials to handle continued volume scaling.</>
+                            ) : (
+                              "Initial demand trends are compiling. Prioritize keeping rice and premium swallow base items fully stocked."
+                            )}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Operational Advice 2: Kitchen Scheduling */}
+                      <div className="bg-white border border-bento-border/70 p-4 rounded-2xl flex gap-3 shadow-2xs hover:shadow-xs transition-shadow">
+                        <div className="p-2 h-fit bg-orange-50 text-orange-700 rounded-xl border border-orange-100">
+                          <Clock className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-bento-text-muted">Peak Shift Dispatching</span>
+                          <p className="text-xs font-bold text-bento-text-primary leading-tight">
+                            The <span className="text-orange-700 font-mono">{peakSlotName}</span> slot remains your heaviest bottleneck. Pre-batch and wrap active items 30 minutes before this window.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Operational Advice 3: Marketing Campaign ROI */}
+                      <div className="bg-white border border-bento-border/70 p-4 rounded-2xl flex gap-3 shadow-2xs hover:shadow-xs transition-shadow">
+                        <div className="p-2 h-fit bg-emerald-50 text-emerald-700 rounded-xl border border-emerald-100">
+                          <Ticket className="w-4 h-4" />
+                        </div>
+                        <div className="space-y-1">
+                          <span className="text-[9px] font-mono font-bold uppercase tracking-wider text-bento-text-muted">Promo Optimization</span>
+                          <p className="text-xs font-bold text-bento-text-primary leading-tight">
+                            {topPromo && topPromo.Redemptions > 0 ? (
+                              <>Campaign <span className="font-mono bg-emerald-100/50 border border-emerald-200 px-1 py-0.5 rounded text-emerald-800">{topPromo.code}</span> is driving your peak conversions with {topPromo.Redemptions} redemptions. Promote it on socials!</>
+                            ) : (
+                              "No active campaign codes are being redeemed. Deploy an early-bird promo discount (e.g. EARLY10) to optimize dinner prep cycles."
+                            )}
+                          </p>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   {/* Charts Grid Row */}
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Revenue Trends Chart (Area Chart) */}
-                    <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4 shadow-sm">
-                      <div>
-                        <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Completed Revenue Trend</h4>
-                        <p className="text-[10px] text-bento-text-muted font-mono">Daily delivered dinner earnings</p>
+                    <div className="bg-white border-2 border-bento-border rounded-3xl p-5.5 space-y-4 shadow-sm">
+                      <div className="flex justify-between items-start border-b border-bento-border/40 pb-3">
+                        <div>
+                          <h4 className="font-sans text-xs font-black uppercase tracking-widest text-bento-text-primary">Completed Revenue Trend</h4>
+                          <p className="text-[10px] text-bento-text-muted font-mono">Daily delivered dinner earnings metrics</p>
+                        </div>
+                        <span className="p-1 bg-bento-cream rounded-lg border border-bento-border text-bento-olive-dark">
+                          <TrendingUp className="w-3.5 h-3.5" />
+                        </span>
                       </div>
-                      <div className="h-64">
+                      <div className="h-64 pt-2">
                         <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={finalRevenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                          <AreaChart data={finalRevenueData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                             <defs>
                               <linearGradient id="colorRevenue" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#4D602D" stopOpacity={0.3}/>
-                                <stop offset="95%" stopColor="#4D602D" stopOpacity={0}/>
+                                <stop offset="5%" stopColor="#5C3A21" stopOpacity={0.25}/>
+                                <stop offset="95%" stopColor="#5C3A21" stopOpacity={0}/>
                               </linearGradient>
                             </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
-                            <XAxis dataKey="date" stroke="#94a3b8" fontSize={10} fontStyle="bold" tickLine={false} />
-                            <YAxis stroke="#94a3b8" fontSize={10} fontStyle="bold" tickLine={false} axisLine={false} tickFormatter={(v) => `₦${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#E8DFD5" opacity={0.5} />
+                            <XAxis dataKey="date" stroke="#8F7A6C" fontSize={10} fontStyle="bold" tickLine={false} />
+                            <YAxis stroke="#8F7A6C" fontSize={10} fontStyle="bold" tickLine={false} axisLine={false} tickFormatter={(v) => `₦${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
                             <ChartTooltip 
                               formatter={(value: any) => [`₦${Number(value).toLocaleString()}`, 'Revenue']}
-                              contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '12px' }}
+                              contentStyle={{ background: '#FAF8F5', border: '2px solid #E8DFD5', borderRadius: '12px', fontSize: '11px', color: '#2C1A10', fontWeight: 'bold' }}
                             />
-                            <Area type="monotone" dataKey="Revenue" stroke="#4D602D" strokeWidth={2.5} fillOpacity={1} fill="url(#colorRevenue)" />
+                            <Area type="monotone" dataKey="Revenue" stroke="#5C3A21" strokeWidth={3} fillOpacity={1} fill="url(#colorRevenue)" />
                           </AreaChart>
                         </ResponsiveContainer>
                       </div>
                     </div>
 
                     {/* Category Sales Distribution (Pie Chart) */}
-                    <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4 shadow-sm">
-                      <div>
-                        <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Meal Category Breakdown</h4>
-                        <p className="text-[10px] text-bento-text-muted font-mono">Volume distribution by culinary categories</p>
+                    <div className="bg-white border-2 border-bento-border rounded-3xl p-5.5 space-y-4 shadow-sm">
+                      <div className="flex justify-between items-start border-b border-bento-border/40 pb-3">
+                        <div>
+                          <h4 className="font-sans text-xs font-black uppercase tracking-widest text-bento-text-primary">Meal Category Breakdown</h4>
+                          <p className="text-[10px] text-bento-text-muted font-mono">Volume distribution by culinary categories</p>
+                        </div>
+                        <span className="p-1 bg-bento-cream rounded-lg border border-bento-border text-bento-olive-dark">
+                          <Activity className="w-3.5 h-3.5" />
+                        </span>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center">
+                      <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-center pt-2">
                         <div className="sm:col-span-7 h-56">
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
@@ -1469,27 +1760,27 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                                 data={finalCategoryData}
                                 cx="50%"
                                 cy="50%"
-                                innerRadius={60}
-                                outerRadius={80}
-                                paddingAngle={5}
+                                innerRadius={55}
+                                outerRadius={75}
+                                paddingAngle={6}
                                 dataKey="value"
                               >
                                 {finalCategoryData.map((entry, index) => (
                                   <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
                                 ))}
                               </Pie>
-                              <ChartTooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '12px' }} />
+                              <ChartTooltip contentStyle={{ background: '#FAF8F5', border: '2px solid #E8DFD5', borderRadius: '12px', fontSize: '11px', color: '#2C1A10', fontWeight: 'bold' }} />
                             </PieChart>
                           </ResponsiveContainer>
                         </div>
-                        <div className="sm:col-span-5 space-y-2">
+                        <div className="sm:col-span-5 space-y-2.5">
                           {finalCategoryData.map((item, index) => (
-                            <div key={item.name} className="flex items-center justify-between text-xs font-bold text-bento-text-secondary">
+                            <div key={item.name} className="flex items-center justify-between text-xs font-bold text-bento-text-secondary bg-bento-cream/20 border border-bento-border/30 p-1.5 px-2 rounded-lg">
                               <div className="flex items-center gap-2">
-                                <span className="w-3 h-3 rounded-full" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}></span>
+                                <span className="w-3 h-3 rounded-full border border-black/5" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}></span>
                                 <span className="uppercase tracking-wider text-[10px]">{item.name}</span>
                               </div>
-                              <span className="font-mono text-bento-text-primary">{item.value} units</span>
+                              <span className="font-mono text-bento-text-primary text-[11px]">{item.value} units</span>
                             </div>
                           ))}
                         </div>
@@ -1499,36 +1790,41 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
 
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6" id="insights-details-row">
                     {/* Popular Meals Standings */}
-                    <div className="lg:col-span-7 bg-white border border-bento-border rounded-2xl p-5 space-y-4" id="popular-standings-card">
-                      <div>
-                        <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Popular Meals Standings</h4>
-                        <p className="text-[10px] text-bento-text-muted font-mono">Most ordered menu items ranked by quantity</p>
+                    <div className="lg:col-span-7 bg-white border-2 border-bento-border rounded-3xl p-5.5 space-y-4 shadow-sm" id="popular-standings-card">
+                      <div className="flex justify-between items-start border-b border-bento-border/40 pb-3">
+                        <div>
+                          <h4 className="font-sans text-xs font-black uppercase tracking-widest text-bento-text-primary">Popular Meals Standings</h4>
+                          <p className="text-[10px] text-bento-text-muted font-mono">Most ordered menu items ranked by quantity</p>
+                        </div>
+                        <span className="text-[10px] font-mono bg-bento-olive/30 border border-bento-olive-border/50 text-bento-olive-dark px-2 py-0.5 rounded-md font-bold uppercase tracking-wider">
+                          Rankings
+                        </span>
                       </div>
 
-                      <div className="space-y-3">
+                      <div className="space-y-3.5">
                         {popularMeals.map((meal, index) => (
-                          <div key={meal.name} className="flex items-center justify-between bg-bento-cream/25 border border-bento-border/40 p-3 rounded-xl hover:border-bento-olive/50 transition-colors">
-                            <div className="flex items-center gap-3">
-                              <span className="font-mono text-xs font-black text-bento-olive-dark bg-bento-olive/20 w-5 h-5 rounded-full flex items-center justify-center">
+                          <div key={meal.name} className="flex items-center justify-between bg-bento-cream/25 border-2 border-bento-border p-3 rounded-2xl hover:border-bento-olive-dark hover:shadow-xs transition-all duration-300">
+                            <div className="flex items-center gap-3.5">
+                              <span className="font-mono text-xs font-black text-bento-olive-dark bg-bento-olive-border/30 w-6 h-6 rounded-full flex items-center justify-center border border-bento-border">
                                 {index + 1}
                               </span>
-                              <img src={meal.img} alt={meal.name} className="w-8 h-8 rounded-lg object-cover border border-bento-border" referrerPolicy="no-referrer" />
-                              <div>
-                                <span className="font-bold text-xs text-bento-text-primary block">{meal.name}</span>
-                                <span className="text-[9px] font-mono uppercase bg-bento-cream px-1.5 py-0.5 rounded border border-bento-border/50 text-bento-text-muted font-bold">
+                              <img src={meal.img} alt={meal.name} className="w-10 h-10 rounded-xl object-cover border border-bento-border bg-white" referrerPolicy="no-referrer" />
+                              <div className="space-y-0.5">
+                                <span className="font-black text-xs text-bento-text-primary block">{meal.name}</span>
+                                <span className="text-[9px] font-mono uppercase bg-white px-2 py-0.5 rounded-md border border-bento-border/75 text-bento-text-muted font-bold tracking-wider">
                                   {meal.category}
                                 </span>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <span className="font-bold text-xs text-bento-text-primary block">{meal.count} ordered</span>
-                              <span className="text-[10px] font-mono font-bold text-bento-text-secondary">₦{meal.revenue.toLocaleString()}</span>
+                            <div className="text-right space-y-0.5">
+                              <span className="font-black text-xs text-bento-olive-dark block">{meal.count} ordered</span>
+                              <span className="text-[10px] font-mono font-bold text-bento-text-muted">₦{meal.revenue.toLocaleString()} Rev</span>
                             </div>
                           </div>
                         ))}
 
                         {popularMeals.length === 0 && (
-                          <div className="text-center py-8 text-bento-text-muted italic text-xs">
+                          <div className="text-center py-12 text-bento-text-muted italic text-xs font-sans">
                             No dinner orders registered yet to compile standings.
                           </div>
                         )}
@@ -1538,24 +1834,29 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                     {/* Delivery Time and Promo Codes Impact */}
                     <div className="lg:col-span-5 space-y-6">
                       {/* Delivery Window Distribution */}
-                      <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4" id="slots-distribution-card">
-                        <div>
-                          <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Delivery Window Distribution</h4>
-                          <p className="text-[10px] text-bento-text-muted font-mono">Customer preferences for delivery schedules</p>
+                      <div className="bg-white border-2 border-bento-border rounded-3xl p-5.5 space-y-4 shadow-sm" id="slots-distribution-card">
+                        <div className="flex justify-between items-start border-b border-bento-border/40 pb-3">
+                          <div>
+                            <h4 className="font-sans text-xs font-black uppercase tracking-widest text-bento-text-primary">Delivery Window Distribution</h4>
+                            <p className="text-[10px] text-bento-text-muted font-mono">Customer preferences for delivery schedules</p>
+                          </div>
+                          <span className="p-1 bg-bento-cream rounded-lg border border-bento-border text-bento-olive-dark">
+                            <Clock className="w-3.5 h-3.5" />
+                          </span>
                         </div>
 
-                        <div className="space-y-4 pt-2">
+                        <div className="space-y-4.5 pt-2">
                           {Object.entries(timeSlots).map(([slot, count]) => {
                             const percentage = Math.round((count / totalSlotsCount) * 100);
                             return (
-                              <div key={slot} className="space-y-1.5">
-                                <div className="flex justify-between items-center text-xs font-bold text-bento-text-secondary">
-                                  <span className="truncate">{slot === '4:30 PM - 6:00 PM' ? 'Early Dinner' : slot === '6:00 PM - 7:30 PM' ? 'Standard' : 'Late Dinner'} <span className="text-[10px] font-normal text-bento-text-muted">({slot})</span></span>
-                                  <span className="font-mono text-bento-olive-dark">{percentage}% ({count})</span>
+                              <div key={slot} className="space-y-2">
+                                <div className="flex justify-between items-center text-xs font-black text-bento-text-secondary">
+                                  <span className="truncate">{slot === '4:30 PM - 6:00 PM' ? '🌅 Early Dinner' : slot === '6:00 PM - 7:30 PM' ? '🌆 Standard' : '🌃 Late Dinner'} <span className="text-[9px] font-mono font-normal text-bento-text-muted">({slot})</span></span>
+                                  <span className="font-mono text-bento-olive-dark text-[11px] bg-bento-olive/30 px-2 py-0.5 rounded-md border border-bento-border/40">{percentage}% ({count})</span>
                                 </div>
-                                <div className="h-2 bg-bento-cream rounded-full overflow-hidden border border-bento-border/50">
+                                <div className="h-2.5 bg-bento-cream rounded-full overflow-hidden border border-bento-border">
                                   <div 
-                                    className="h-full bg-bento-olive-dark rounded-full transition-all duration-500"
+                                    className="h-full bg-bento-olive-dark rounded-full transition-all duration-700"
                                     style={{ width: `${percentage}%` }}
                                   ></div>
                                 </div>
@@ -1566,21 +1867,26 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                       </div>
 
                       {/* Promo Code Redemptions Bar Chart */}
-                      <div className="bg-white border border-bento-border rounded-2xl p-5 space-y-4 shadow-sm">
-                        <div>
-                          <h4 className="font-sans text-xs font-black uppercase tracking-tight text-bento-text-primary">Campaign Redemptions</h4>
-                          <p className="text-[10px] text-bento-text-muted font-mono">Redemption counts by promotional codes</p>
+                      <div className="bg-white border-2 border-bento-border rounded-3xl p-5.5 space-y-4 shadow-sm">
+                        <div className="flex justify-between items-start border-b border-bento-border/40 pb-3">
+                          <div>
+                            <h4 className="font-sans text-xs font-black uppercase tracking-widest text-bento-text-primary">Campaign Redemptions</h4>
+                            <p className="text-[10px] text-bento-text-muted font-mono">Redemption counts by promotional codes</p>
+                          </div>
+                          <span className="p-1 bg-bento-cream rounded-lg border border-bento-border text-bento-olive-dark">
+                            <Ticket className="w-3.5 h-3.5" />
+                          </span>
                         </div>
-                        <div className="h-40">
+                        <div className="h-40 pt-2">
                           {promoChartData.length === 0 ? (
-                            <div className="text-center py-10 text-xs text-bento-text-muted italic">No campaign data available.</div>
+                            <div className="text-center py-10 text-xs text-bento-text-muted italic font-sans">No campaign redemption data available yet.</div>
                           ) : (
                             <ResponsiveContainer width="100%" height="100%">
                               <BarChart data={promoChartData} layout="vertical" margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                                <XAxis type="number" stroke="#94a3b8" fontSize={9} fontStyle="bold" tickLine={false} />
-                                <YAxis type="category" dataKey="code" stroke="#94a3b8" fontSize={9} fontStyle="bold" tickLine={false} />
-                                <ChartTooltip contentStyle={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '12px', fontSize: '11px' }} />
-                                <Bar dataKey="Redemptions" fill="#4D602D" radius={[0, 4, 4, 0]} barSize={12} />
+                                <XAxis type="number" stroke="#8F7A6C" fontSize={9} fontStyle="bold" tickLine={false} />
+                                <YAxis type="category" dataKey="code" stroke="#8F7A6C" fontSize={9} fontStyle="bold" tickLine={false} />
+                                <ChartTooltip contentStyle={{ background: '#FAF8F5', border: '2px solid #E8DFD5', borderRadius: '12px', fontSize: '11px', color: '#2C1A10', fontWeight: 'bold' }} />
+                                <Bar dataKey="Redemptions" fill="#5C3A21" radius={[0, 6, 6, 0]} barSize={14} />
                               </BarChart>
                             </ResponsiveContainer>
                           )}
@@ -1814,6 +2120,146 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                         })}
                       </ul>
                     )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'notifications' && (
+              <div className="space-y-6">
+                <div className="flex flex-col xl:flex-row gap-6">
+                  {/* Left: Compose Form */}
+                  <div className="flex-1 bg-white p-5 sm:p-6 rounded-2xl border border-bento-border shadow-sm">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Send className="text-bento-olive-dark w-5 h-5" />
+                      <h3 className="font-black text-lg text-bento-text-primary uppercase tracking-tight">Compose Push Notification</h3>
+                    </div>
+                    <p className="text-xs text-bento-text-muted mb-6">Send status updates or promotional broadcasts directly to customers' notification bell in real-time.</p>
+
+                    {notifSuccessMsg && (
+                      <div className="mb-4 p-3 bg-bento-olive/10 text-bento-olive-dark rounded-xl text-xs font-bold border border-bento-olive/30 flex items-center gap-2 animate-bounce">
+                        <CheckCircle className="w-4 h-4 shrink-0" />
+                        {notifSuccessMsg}
+                      </div>
+                    )}
+
+                    {notifErrorMsg && (
+                      <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-xs font-bold border border-red-100 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        {notifErrorMsg}
+                      </div>
+                    )}
+
+                    <form onSubmit={handleSendNotification} className="space-y-4">
+                      {/* Recipient Selector */}
+                      <div>
+                        <label className="block text-xs font-bold text-bento-text-primary uppercase tracking-wider mb-1.5">Target Recipient</label>
+                        <select
+                          value={notifTarget}
+                          onChange={(e) => setNotifTarget(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs font-bold focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                        >
+                          <option value="all">📢 All Registered Users (Broadcast Promo)</option>
+                          {devices.map((device) => (
+                            <option key={device.userId} value={device.userId}>
+                              👤 {device.userEmail} ({device.userId.slice(0, 6)}...)
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Type Selector */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-bold text-bento-text-primary uppercase tracking-wider mb-1.5">Notification Type</label>
+                          <select
+                            value={notifType}
+                            onChange={(e) => setNotifType(e.target.value as 'promo' | 'order_update')}
+                            className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                          >
+                            <option value="promo">🎁 Promotion / Discount Campaign</option>
+                            <option value="order_update">🚴 Order Status / Kitchen Update</option>
+                          </select>
+                        </div>
+
+                        {/* Title input */}
+                        <div>
+                          <label className="block text-xs font-bold text-bento-text-primary uppercase tracking-wider mb-1.5">Notification Title</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Delicious Soup Alert!"
+                            value={notifTitle}
+                            onChange={(e) => setNotifTitle(e.target.value)}
+                            className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Body textarea */}
+                      <div>
+                        <label className="block text-xs font-bold text-bento-text-primary uppercase tracking-wider mb-1.5">Message Body</label>
+                        <textarea
+                          rows={4}
+                          required
+                          placeholder="Compose your dynamic notification message here..."
+                          value={notifBody}
+                          onChange={(e) => setNotifBody(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-bento-border bg-white text-xs focus:outline-none focus:ring-2 focus:ring-bento-olive-dark"
+                        />
+                      </div>
+
+                      {/* Submit */}
+                      <button
+                        type="submit"
+                        disabled={sendingNotif}
+                        className="w-full bg-bento-olive-dark text-bento-cream py-3 rounded-xl font-bold text-xs uppercase tracking-wider hover:bg-opacity-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+                      >
+                        {sendingNotif ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dispatched FCM Send...
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" /> Dispatch Push Notification
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Right: Device Tokens Directory */}
+                  <div className="w-full xl:w-96 bg-white p-5 rounded-2xl border border-bento-border shadow-sm flex flex-col">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Activity className="text-bento-olive-dark w-5 h-5 animate-pulse" />
+                      <h4 className="font-black text-sm text-bento-text-primary uppercase tracking-tight">FCM Device Tokens ({devices.length})</h4>
+                    </div>
+                    <p className="text-[10px] text-bento-text-muted mb-4">Direct directory registry mapping of device tokens stored in firestore.</p>
+
+                    <div className="flex-1 overflow-y-auto max-h-[360px] divide-y divide-bento-border/50">
+                      {loadingDevices ? (
+                        <div className="p-6 text-center text-xs font-mono text-bento-text-muted">Loading device directory...</div>
+                      ) : devices.length === 0 ? (
+                        <div className="p-8 text-center text-bento-text-muted">
+                          <Activity className="w-8 h-8 mx-auto mb-2 opacity-30" />
+                          <p className="text-xs font-bold">No active devices</p>
+                          <p className="text-[9px] font-medium mt-1">Tokens register here once customers log in.</p>
+                        </div>
+                      ) : (
+                        devices.map((dev) => (
+                          <div key={dev.userId} className="py-2.5 hover:bg-bento-cream/10 transition-all flex flex-col gap-1">
+                            <div className="flex items-center justify-between gap-1">
+                              <span className="text-xs font-bold text-bento-text-primary truncate">{dev.userEmail}</span>
+                              <span className="text-[8px] font-mono font-bold bg-bento-olive/10 text-bento-olive-dark px-1.5 py-0.5 rounded-lg shrink-0">ONLINE</span>
+                            </div>
+                            <div className="text-[9px] text-bento-text-muted font-mono truncate select-all" title="Click to copy token">
+                              Token: <span className="text-bento-text-secondary">{dev.token}</span>
+                            </div>
+                            <span className="text-[8px] text-bento-text-muted">Registered: {new Date(dev.updatedAt).toLocaleDateString()} {new Date(dev.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

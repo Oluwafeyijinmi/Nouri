@@ -19,6 +19,25 @@
   --bento-card-bg-elevated: #FAF8F5;
 }
 
+html.dark {
+  --bento-cream: #120A05;
+  --bento-cream-dark: #FAF8F5;
+  --bento-cream-light: #1C110A;
+  --bento-olive: #1D140E;
+  --bento-olive-dark: #F3E5D8;
+  --bento-olive-border: #3A2518;
+  --bento-tan: #1F150F;
+  --bento-tan-dark: #F5C79E;
+  --bento-tan-border: #4D3323;
+  --bento-border: #2B190E;
+  --bento-gray: #1C110A;
+  --bento-text-primary: #FAF8F5;
+  --bento-text-secondary: #EADCD1;
+  --bento-text-muted: #9E897A;
+  --bento-card-bg: #1B1009;
+  --bento-card-bg-elevated: #21150D;
+}
+
 @theme {
   --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
   --font-serif: "Playfair Display", Georgia, serif;
@@ -130,6 +149,11 @@ body {
   border: 1px solid rgba(232, 223, 213, 0.5);
 }
 
+html.dark .glass-panel {
+  background-color: rgba(27, 16, 9, 0.45);
+  border: 1px solid rgba(43, 25, 14, 0.5);
+}
+
 .glass-card {
   background-color: rgba(255, 255, 255, 0.7);
   backdrop-filter: blur(12px);
@@ -138,9 +162,15 @@ body {
   box-shadow: 0 8px 32px 0 rgba(147, 129, 116, 0.08);
 }
 
+html.dark .glass-card {
+  background-color: rgba(27, 16, 9, 0.7);
+  border: 1px solid rgba(43, 25, 14, 0.45);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.5);
+}
+
 /* Premium Neomorphic Card styling with organic sand-tinted warm shadows (No plain black) */
 .neomorphic-card {
-  background-color: #FFFFFF;
+  background-color: var(--bento-card-bg);
   border-radius: 24px;
   box-shadow: 8px 8px 20px #E5DDD3, -8px -8px 20px #FFFFFF;
   border: 1px solid rgba(255, 255, 255, 0.6);
@@ -150,21 +180,38 @@ body {
   -webkit-backface-visibility: hidden;
 }
 
+html.dark .neomorphic-card {
+  box-shadow: 8px 8px 20px #090503, -8px -8px 20px #1E130B;
+  border: 1px solid rgba(43, 25, 14, 0.6);
+}
+
 .neomorphic-card:hover {
   transform: translate3d(0, -2px, 0);
   box-shadow: 10px 10px 24px #DDD4C8, -10px -10px 24px #FFFFFF;
 }
 
+html.dark .neomorphic-card:hover {
+  box-shadow: 10px 10px 24px #070402, -10px -10px 24px #22150D;
+}
+
 .neomorphic-inset {
-  background-color: #FAF8F5;
+  background-color: var(--bento-cream);
   box-shadow: inset 3px 3px 6px #E5DDD3, inset -3px -3px 6px #FFFFFF;
   border: none;
   outline: none;
 }
 
+html.dark .neomorphic-inset {
+  box-shadow: inset 3px 3px 6px #090503, inset -3px -3px 6px #1E130B;
+}
+
 .neomorphic-flat {
-  background-color: #FFFFFF;
+  background-color: var(--bento-card-bg);
   box-shadow: 6px 6px 14px #E5DDD3, -6px -6px 14px #FFFFFF;
+}
+
+html.dark .neomorphic-flat {
+  box-shadow: 6px 6px 14px #090503, -6px -6px 14px #1E130B;
 }
 
 .neomorphic-shadow {
@@ -175,9 +222,17 @@ body {
   -webkit-backface-visibility: hidden;
 }
 
+html.dark .neomorphic-shadow {
+  box-shadow: 6px 6px 14px #090503, -6px -6px 14px #1E130B;
+}
+
 .neomorphic-shadow:hover {
   transform: translate3d(0, -2px, 0);
   box-shadow: 8px 8px 20px #DDD4C8, -8px -8px 20px #FFFFFF;
+}
+
+html.dark .neomorphic-shadow:hover {
+  box-shadow: 8px 8px 20px #070402, -8px -8px 20px #22150D;
 }
 
 .neomorphic-button {
@@ -185,13 +240,25 @@ body {
   box-shadow: 4px 4px 8px #E5DDD3, -4px -4px 8px #FFFFFF;
 }
 
+html.dark .neomorphic-button {
+  box-shadow: 4px 4px 8px #090503, -4px -4px 8px #1E130B;
+}
+
 .neomorphic-button:hover {
   transform: translateY(-1px);
   box-shadow: 5px 5px 10px #DDD4C8, -5px -5px 10px #FFFFFF;
 }
 
+html.dark .neomorphic-button:hover {
+  box-shadow: 5px 5px 10px #070402, -5px -5px 10px #22150D;
+}
+
 .neomorphic-button:active {
   transform: translateY(1px);
   box-shadow: inset 2px 2px 5px #E5DDD3, inset -2px -2px 5px #FFFFFF;
+}
+
+html.dark .neomorphic-button:active {
+  box-shadow: inset 2px 2px 5px #090503, inset -2px -2px 5px #1E130B;
 }
 
