@@ -92,6 +92,8 @@ export default function ReviewsAndFAQs() {
                 key={index} 
                 className="neomorphic-card overflow-hidden"
                 id={`faq-item-${index}`}
+                onMouseEnter={() => setOpenFaqIndex(index)}
+                onMouseLeave={() => setOpenFaqIndex(null)}
               >
                 <button
                   onClick={() => toggleFaq(index)}

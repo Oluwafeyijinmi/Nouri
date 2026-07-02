@@ -11,7 +11,7 @@ interface CheckoutModalProps {
   onClearCart: () => void;
 }
 
-type CheckoutStage = 'details' | 'tracking';
+type CheckoutStage = 'details' | 'payment' | 'tracking';
 type TrafficLevel = 'smooth' | 'moderate' | 'heavy';
 
 export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: CheckoutModalProps) {
@@ -26,6 +26,11 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
     deliveryInstructions: '',
     deliveryTime: '4:30 PM - 6:00 PM',
   });
+
+  const [isCreatingCheckout, setIsCreatingCheckout] = useState(false);
+  const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   const [trackerStep, setTrackerStep] = useState<number>(0);
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
@@ -269,15 +274,20 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
     if (formError) setFormError(null); // Clear error on edit
   };
 
-  const handlePlaceOrder = (e: React.FormEvent) => {
+  const handlePlaceOrder = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.name || !formData.phone || !formData.address) {
       setFormError("Please fill in all required fields marked with *");
       return;
     }
 
+    setIsCreatingCheckout(true);
+    setFormError(null);
+
+    const orderRef = `NOURI-${Math.floor(100000 + Math.random() * 900000)}`;
+
     const newOrder: Order = {
-      id: `NOURI-${Math.floor(100000 + Math.random() * 900000)}`,
+      id: orderRef,
       items: [...cart],
       customer: { ...formData },
       total: totalAmount,
@@ -285,28 +295,97 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
       status: 'Received',
     };
 
-    // Save order to database and auto-save delivery details to profile if user is signed in
-    const user = auth.currentUser;
-    if (user) {
-      saveOrder(user.uid, newOrder).catch((err) => console.error("Error saving order: ", err));
-      if (activePromo) {
-        incrementPromoUsage(activePromo).catch((err) => console.error("Error incrementing promo usage: ", err));
-      }
-      saveUserProfile(user.uid, {
-        name: formData.name,
-        phone: formData.phone,
-        address: formData.address,
-        landmark: formData.landmark || '',
-        deliveryInstructions: formData.deliveryInstructions || '',
-        deliveryTime: formData.deliveryTime,
-        email: user.email || 'guest@nouri.delivery'
-      }).catch((err) => console.error("Error auto-saving coordinates: ", err));
-    }
+    try {
+      console.log("[Nomba] Requesting checkout order reference:", orderRef);
+      const response = await fetch("/api/nomba/create-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          amount: totalAmount,
+          orderReference: orderRef,
+          customerEmail: formData.email || "michaiahomolaso@gmail.com",
+          callbackUrl: `${window.location.origin}/order-success`,
+          description: `Nouri Kitchens Ibadan Delivery Order Ref: ${orderRef}`
+        })
+      });
 
-    setCreatedOrder(newOrder);
-    setStage('tracking');
-    setFormError(null);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to initialize payment gateway. Please check your network or try again.");
+      }
+
+      console.log("[Nomba] Checkout link successfully generated:", data.checkoutLink);
+
+      // Save order to Firestore as Received so it tracks seamlessly
+      const user = auth.currentUser;
+      if (user) {
+        await saveOrder(user.uid, newOrder).catch((err) => console.error("Error saving order: ", err));
+        if (activePromo) {
+          await incrementPromoUsage(activePromo).catch((err) => console.error("Error incrementing promo usage: ", err));
+        }
+        await saveUserProfile(user.uid, {
+          name: formData.name,
+          phone: formData.phone,
+          address: formData.address,
+          landmark: formData.landmark || '',
+          deliveryInstructions: formData.deliveryInstructions || '',
+          deliveryTime: formData.deliveryTime,
+          email: user.email || 'guest@nouri.delivery'
+        }).catch((err) => console.error("Error auto-saving coordinates: ", err));
+      }
+
+      setCreatedOrder(newOrder);
+      setCheckoutUrl(data.checkoutLink);
+      setStage('payment');
+      setFormError(null);
+
+      // Attempt auto-opening checkout link in a new tab
+      try {
+        window.open(data.checkoutLink, '_blank');
+      } catch (popupErr) {
+        console.warn("Popup block prevented auto-redirect. Fallback to manual launch action.", popupErr);
+      }
+
+    } catch (err: any) {
+      console.error("[Nomba] Checkout initiation error:", err);
+      setFormError(err.message || "An unexpected error occurred while contacting Nomba payment servers.");
+    } finally {
+      setIsCreatingCheckout(false);
+    }
   };
+
+  const handleVerifyPayment = async () => {
+    if (!createdOrder) return;
+
+    setIsVerifying(true);
+    setVerificationError(null);
+
+    try {
+      console.log("[Nomba] Triggering verification check for:", createdOrder.id);
+      const response = await fetch(`/api/nomba/verify-payment/${createdOrder.id}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "We could not verify your payment at this moment. If you have completed the transfer, please try again in a few seconds.");
+      }
+
+      console.log("[Nomba] Verification API results:", data);
+      
+      // Successfully verified
+      setStage('tracking');
+      setFormError(null);
+
+    } catch (err: any) {
+      console.error("[Nomba] Verification error:", err);
+      setVerificationError(err.message || "Unable to confirm payment. Please complete payment or try again.");
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
 
   const handleFinishDemo = () => {
     onClearCart();
@@ -340,14 +419,14 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
             <Truck className="w-5 h-5 text-bento-olive" />
             <div>
               <h2 className="font-sans text-lg font-black uppercase tracking-tight text-bento-cream-light">
-                {stage === 'details' ? 'Delivery Configuration' : 'Simulated Delivery Tracker'}
+                {stage === 'details' ? 'Delivery Configuration' : stage === 'payment' ? 'Secure Payment' : 'Simulated Delivery Tracker'}
               </h2>
               <p className="text-[11px] text-bento-text-muted opacity-90 transition-colors">
-                {stage === 'details' ? 'Where should we deliver your hot dinner?' : `Order ID: ${createdOrder?.id}`}
+                {stage === 'details' ? 'Where should we deliver your hot dinner?' : stage === 'payment' ? `Order Reference: ${createdOrder?.id}` : `Order ID: ${createdOrder?.id}`}
               </p>
             </div>
           </div>
-          {stage === 'details' && (
+          {(stage === 'details' || stage === 'payment') && (
             <button 
               onClick={onClose}
               className="p-1.5 rounded-xl text-bento-text-muted hover:text-bento-cream-light hover:bg-bento-cream/10 transition-colors cursor-pointer"
@@ -361,13 +440,13 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
         {/* Modal Body */}
         <div className="flex-1 overflow-y-auto p-5 sm:p-6 bg-bento-cream transition-colors duration-300" id="checkout-body">
           
-          {stage === 'details' ? (
+          {stage === 'details' && (
             <form onSubmit={handlePlaceOrder} className="space-y-5" id="details-form">
               {/* Note about simulated payment */}
-              <div className="bg-bento-tan border border-bento-tan-border rounded-2xl p-4 flex gap-3 text-xs text-bento-tan-dark font-semibold transition-colors" id="simulation-notice">
-                <HelpCircle className="w-4 h-4 shrink-0 mt-0.5" />
+              <div className="bg-bento-olive/10 border border-bento-olive-border/30 rounded-2xl p-4 flex gap-3 text-xs text-bento-olive-dark font-semibold transition-colors" id="simulation-notice">
+                <CreditCard className="w-4 h-4 shrink-0 mt-0.5 text-bento-olive-dark" />
                 <div>
-                  <strong>DEMONSTRATION ONLY:</strong> Payment gateway is disabled. No money will be charged. Placed orders simulate the active preparation and driver dispatch phases in Ibadan.
+                  <strong>NOMBA SECURE CHECKOUT:</strong> Enter your real delivery coordinates below. Placing this order will generate a secure online transaction page powered by the Nomba payment gateway.
                 </div>
               </div>
 
@@ -731,15 +810,104 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
                 </button>
                 <button
                   type="submit"
-                  className="w-full sm:w-2/3 bg-bento-text-primary hover:bg-bento-olive-dark text-bento-cream font-bold py-3 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 hover:scale-[1.01] cursor-pointer"
+                  disabled={isCreatingCheckout}
+                  className="w-full sm:w-2/3 bg-bento-text-primary hover:bg-bento-olive-dark text-bento-cream font-bold py-3 rounded-2xl transition-all shadow-md flex items-center justify-center gap-2 hover:scale-[1.01] cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                   id="checkout-submit-btn"
                 >
-                  <CreditCard className="w-4 h-4 text-bento-cream" />
-                  <span>Place Simulated Order</span>
+                  {isCreatingCheckout ? (
+                    <RefreshCw className="w-4 h-4 text-bento-cream animate-spin" />
+                  ) : (
+                    <CreditCard className="w-4 h-4 text-bento-cream" />
+                  )}
+                  <span>{isCreatingCheckout ? 'Connecting Nomba...' : 'Proceed to Checkout'}</span>
                 </button>
               </div>
             </form>
-          ) : (
+          )}
+
+          {stage === 'payment' && (
+            <div className="space-y-6 py-4 text-center flex flex-col items-center justify-center animate-fadeIn" id="nomba-payment-screen">
+              <div className="bg-bento-card-bg border border-bento-border rounded-3xl p-6 w-full max-w-md mx-auto space-y-4 shadow-md">
+                <div className="w-16 h-16 bg-bento-olive/10 rounded-full flex items-center justify-center text-bento-olive-dark mx-auto animate-pulse">
+                  <CreditCard className="w-8 h-8" />
+                </div>
+                <div className="space-y-1">
+                  <span className="text-[10px] text-bento-olive-dark font-mono font-bold uppercase tracking-wider block">NOMBA PAYMENTS GATEWAY</span>
+                  <h3 className="text-base font-black text-bento-text-primary uppercase tracking-tight">Complete Your Payment</h3>
+                  <p className="text-xl font-extrabold text-bento-olive-dark">₦{totalAmount.toLocaleString()}</p>
+                </div>
+                <p className="text-xs text-bento-text-secondary leading-relaxed font-medium">
+                  We have generated a secure payment session on the Nomba gateway for your Nouri dinner delivery order <strong>{createdOrder?.id}</strong>.
+                </p>
+
+                {verificationError && (
+                  <div className="bg-red-500/10 border border-red-500/20 text-red-600 p-3 rounded-xl text-xs font-bold flex items-center gap-2 text-left">
+                    <AlertCircle className="w-4.5 h-4.5 shrink-0" />
+                    <span>{verificationError}</span>
+                  </div>
+                )}
+
+                <div className="space-y-3 pt-2">
+                  <a
+                    href={checkoutUrl || "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-bento-text-primary hover:bg-bento-olive-dark text-bento-cream font-bold py-3 px-4 rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>Proceed to Nomba Checkout</span>
+                  </a>
+
+                  {/* Nomba Sandbox Testing Guide Box */}
+                  <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-3.5 text-left space-y-1.5" id="nomba-sandbox-guide">
+                    <span className="text-[10px] text-amber-800 font-mono font-bold uppercase tracking-wider block">🔒 Sandbox Testing Guide:</span>
+                    <p className="text-[10px] text-amber-700 leading-relaxed font-medium">
+                      On the Nomba payment gateway, select <strong>Card</strong> and enter:
+                    </p>
+                    <ul className="text-[10px] text-amber-700 space-y-0.5 list-disc pl-4 font-semibold">
+                      <li>Card Numbers: <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">5123 4567 8901 2346</code> (Mastercard) or <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">4242 4242 4242 4242</code> (Visa)</li>
+                      <li>Expiry & CVV: Any future date (e.g. <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">12/28</code>) and any 3 digits (e.g. <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">123</code>)</li>
+                      <li>Card PIN: <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">1234</code></li>
+                      <li>OTP code: <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">123456</code></li>
+                    </ul>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleVerifyPayment}
+                    disabled={isVerifying}
+                    className="w-full border border-bento-border bg-white hover:bg-bento-gray text-bento-text-primary font-bold py-2.5 px-4 rounded-xl transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {isVerifying ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                    )}
+                    <span>{isVerifying ? 'Verifying payment status...' : 'Verify My Payment'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Hackathon Bypass option for easier judging and live test previews */}
+              <div className="text-center pt-2 max-w-sm mx-auto">
+                <p className="text-[10px] text-bento-text-secondary font-medium">
+                  Reviewing the hackathon app? Skip real transfer confirmation and preview the real-time driver dispatch stage directly:
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStage('tracking');
+                    onClearCart();
+                  }}
+                  className="mt-2 text-xs bg-bento-olive/20 hover:bg-bento-olive/35 text-bento-olive-dark font-black px-4.5 py-2 rounded-xl transition-colors border border-bento-olive-border/20 cursor-pointer"
+                >
+                  ⚡ Hackathon Bypass & Track Order
+                </button>
+              </div>
+            </div>
+          )}
+
+          {stage === 'tracking' && (
             /* --- TRACKER SCREEN --- */
             createdOrder?.status === 'Cancelled' ? (
               <div className="space-y-6 py-4 animate-fadeIn" id="cancelled-screen">
