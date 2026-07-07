@@ -86,6 +86,7 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
   const [orders, setOrders] = useState<OrderType[]>([]);
   const [loadingOrders, setLoadingOrders] = useState(true);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [orderViewMode, setOrderViewMode] = useState<'list' | 'dispatch'>('list');
 
   // Settings State
   const [adminEmails, setAdminEmails] = useState<string[]>([]);
@@ -790,10 +791,26 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
             
             {activeTab === 'orders' && (
               <div className="space-y-6">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <h3 className="font-black text-lg text-bento-text-primary uppercase tracking-tight">Active & Past Orders</h3>
-                  <div className="text-xs font-mono text-bento-text-muted bg-bento-cream px-3 py-1.5 rounded-lg border border-bento-border">
-                    {orders.length} orders total
+                  <div className="flex items-center gap-2">
+                    <div className="flex bg-bento-cream p-1 rounded-xl border border-bento-border">
+                      <button 
+                        onClick={() => setOrderViewMode('list')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${orderViewMode === 'list' ? 'bg-white text-bento-olive-dark shadow-sm' : 'text-bento-text-muted hover:text-bento-text-primary'}`}
+                      >
+                        List View
+                      </button>
+                      <button 
+                        onClick={() => setOrderViewMode('dispatch')}
+                        className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${orderViewMode === 'dispatch' ? 'bg-white text-bento-olive-dark shadow-sm' : 'text-bento-text-muted hover:text-bento-text-primary'}`}
+                      >
+                        Auto Dispatch
+                      </button>
+                    </div>
+                    <div className="text-xs font-mono text-bento-text-muted bg-bento-cream px-3 py-1.5 rounded-lg border border-bento-border">
+                      {orders.length} orders total
+                    </div>
                   </div>
                 </div>
 
@@ -801,7 +818,7 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                   <div className="flex justify-center items-center h-40 text-bento-text-muted">
                     <span className="font-mono text-sm uppercase tracking-wider animate-pulse">Loading Live Orders...</span>
                   </div>
-                ) : (
+                ) : orderViewMode === 'list' ? (
                   <div className="space-y-4">
                     {orders.map(order => (
                       <div key={order.id} className="bg-white border border-bento-border rounded-2xl overflow-hidden shadow-sm">
@@ -878,6 +895,67 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                         )}
                       </div>
                     ))}
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    <div className="bg-bento-cream border border-bento-border p-4 rounded-2xl flex items-center gap-3">
+                      <Truck className="w-6 h-6 text-bento-olive-dark flex-shrink-0" />
+                      <div>
+                        <h4 className="text-sm font-black text-bento-text-primary uppercase tracking-tight">AI Dispatch Optimization</h4>
+                        <p className="text-xs text-bento-text-muted">Active orders grouped by location & landmark to maximize delivery efficiency.</p>
+                      </div>
+                    </div>
+                    {(() => {
+                      const activeOrders = orders.filter(o => o.status === 'Received' || o.status === 'Preparing');
+                      if (activeOrders.length === 0) {
+                        return (
+                          <div className="text-center py-10 text-bento-text-muted text-sm border-2 border-dashed border-bento-border rounded-2xl">
+                            No active orders to dispatch.
+                          </div>
+                        );
+                      }
+                      
+                      const grouped: Record<string, typeof orders> = {};
+                      activeOrders.forEach(o => {
+                        const zone = o.customer.landmark?.trim() || 'Unknown Zone / Direct Address';
+                        if (!grouped[zone]) grouped[zone] = [];
+                        grouped[zone].push(o);
+                      });
+                      
+                      return Object.entries(grouped).sort((a, b) => b[1].length - a[1].length).map(([zone, zoneOrders]) => (
+                        <div key={zone} className="border border-bento-border bg-white rounded-2xl overflow-hidden shadow-sm">
+                          <div className="bg-bento-olive/10 border-b border-bento-border p-3 flex justify-between items-center">
+                            <h5 className="font-bold text-sm text-bento-text-primary uppercase flex items-center gap-2">
+                              📍 Zone: {zone}
+                            </h5>
+                            <span className="bg-white text-bento-olive-dark text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded-full border border-bento-border">
+                              {zoneOrders.length} Order(s)
+                            </span>
+                          </div>
+                          <div className="p-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {zoneOrders.map(o => (
+                              <div key={o.id} className="border border-bento-border rounded-xl p-3 text-xs bg-bento-cream/20">
+                                <div className="flex justify-between items-start mb-2">
+                                  <span className="font-mono font-bold">{o.id.slice(0, 8).toUpperCase()}</span>
+                                  <span className="bg-orange-100 text-orange-800 border border-orange-200 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold">
+                                    {o.status}
+                                  </span>
+                                </div>
+                                <p className="font-medium text-bento-text-primary truncate">{o.customer.name}</p>
+                                <p className="text-bento-text-muted truncate mb-2">{o.customer.address}</p>
+                                <div className="space-y-1">
+                                  {o.items.map((it, i) => (
+                                    <div key={i} className="flex justify-between border-t border-bento-border/50 pt-1">
+                                      <span className="text-bento-text-secondary truncate pr-2">{it.quantity}x {it.menuItem.name}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ));
+                    })()}
                   </div>
                 )}
               </div>

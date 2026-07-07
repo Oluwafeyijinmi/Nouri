@@ -22,6 +22,7 @@ export interface MenuItem {
   image: string;               // Unsplash food image
   tags: string[];              // e.g. ["Best Seller", "Working Class Fave", "Spicy", "High Protein", "Quick Dinner", "Sweet", "Crunchy"]
   isPopular?: boolean;
+  nutrition?: string;          // Premium nutritional & ingredient transparency (e.g. "Calories: 450 | High Protein")
 }
 
 export interface CartItem {

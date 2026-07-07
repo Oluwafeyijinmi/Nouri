@@ -235,7 +235,11 @@ export default function App() {
 
       {/* 3. Catalog Section with search, categories, sizes, and extras */}
       <main className="flex-1" id="main-content">
-        <MenuSection onAddToCart={handleAddToCart} menuItems={menuItems} />
+        <MenuSection 
+          onAddToCart={handleAddToCart} 
+          menuItems={menuItems} 
+          userOrderCount={userOrders.length}
+        />
       </main>
 
       {/* 4. SEO Schema Metadata audit and education card */}

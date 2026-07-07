@@ -6,9 +6,10 @@ import { MENU_ITEMS, STANDARD_EXTRAS } from '../data';
 interface MenuSectionProps {
   onAddToCart: (item: MenuItem, selectedSize?: SizeOption, selectedExtras?: ExtraOption[]) => void;
   menuItems?: MenuItem[];
+  userOrderCount?: number;
 }
 
-export default function MenuSection({ onAddToCart, menuItems }: MenuSectionProps) {
+export default function MenuSection({ onAddToCart, menuItems, userOrderCount = 0 }: MenuSectionProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState<FoodCategory | 'all'>('all');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
@@ -547,6 +548,18 @@ export default function MenuSection({ onAddToCart, menuItems }: MenuSectionProps
                       <p className="text-xs text-bento-text-muted leading-relaxed font-light line-clamp-2 transition-colors" id={`card-desc-${item.id}`}>
                         {item.description}
                       </p>
+                      
+                      {/* Premium Nutrition Transparency */}
+                      {userOrderCount >= 5 && item.nutrition && (
+                        <div className="mt-2 p-2 bg-bento-olive/5 border border-bento-olive-border/30 rounded-lg animate-fadeIn" id={`card-nutrition-${item.id}`}>
+                          <p className="text-[9px] font-mono text-bento-olive-dark font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3" /> Nouri Premium Insight
+                          </p>
+                          <p className="text-[10px] text-bento-text-muted leading-relaxed">
+                            {item.nutrition}
+                          </p>
+                        </div>
+                      )}
                     </div>
 
                     {/* DYNAMIC SIZES SELECTOR (If soup or snack has size options) */}

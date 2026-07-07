@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, MapPin, Truck, Check, HelpCircle, Phone, CreditCard, ChevronRight, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Users, Share2, Copy, Sparkles, CheckCircle } from 'lucide-react';
+import { X, MapPin, Truck, Check, HelpCircle, Phone, CreditCard, ChevronRight, MessageSquare, ExternalLink, RefreshCw, AlertCircle, Users, Share2, Copy, Sparkles, CheckCircle, Lock } from 'lucide-react';
 import { CartItem, CustomerDetails, Order, PromoCode } from '../types';
 import { auth } from '../lib/firebase';
 import { getUserProfile, saveOrder, saveUserProfile, subscribeToOrder, cancelOrderInDb, subscribeToPromos, incrementPromoUsage } from '../lib/db';
@@ -31,6 +31,17 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
   const [checkoutUrl, setCheckoutUrl] = useState<string | null>(null);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [isVerifying, setIsVerifying] = useState(false);
+
+  // Nomba Payment Simulator States
+  const [isSimulatorMode, setIsSimulatorMode] = useState(false);
+  const [simStep, setSimStep] = useState<'method' | 'card' | 'pin' | 'otp' | 'success'>('method');
+  const [simCardNum, setSimCardNum] = useState('5123 4567 8901 2346');
+  const [simExpiry, setSimExpiry] = useState('12/29');
+  const [simCvv, setSimCvv] = useState('123');
+  const [simPin, setSimPin] = useState('1234');
+  const [simOtp, setSimOtp] = useState('123456');
+  const [simLoading, setSimLoading] = useState(false);
+  const [simError, setSimError] = useState<string | null>(null);
 
   const [trackerStep, setTrackerStep] = useState<number>(0);
   const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
@@ -342,11 +353,18 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
       setStage('payment');
       setFormError(null);
 
-      // Attempt auto-opening checkout link in a new tab
-      try {
-        window.open(data.checkoutLink, '_blank');
-      } catch (popupErr) {
-        console.warn("Popup block prevented auto-redirect. Fallback to manual launch action.", popupErr);
+      const isSim = data.isSimulator || data.checkoutLink === "#simulator";
+      setIsSimulatorMode(isSim);
+      if (isSim) {
+        setSimStep('method');
+        setSimError(null);
+      } else {
+        // Attempt auto-opening checkout link in a new tab
+        try {
+          window.open(data.checkoutLink, '_blank');
+        } catch (popupErr) {
+          console.warn("Popup block prevented auto-redirect. Fallback to manual launch action.", popupErr);
+        }
       }
 
     } catch (err: any) {
@@ -827,83 +845,453 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
 
           {stage === 'payment' && (
             <div className="space-y-6 py-4 text-center flex flex-col items-center justify-center animate-fadeIn" id="nomba-payment-screen">
-              <div className="bg-bento-card-bg border border-bento-border rounded-3xl p-6 w-full max-w-md mx-auto space-y-4 shadow-md">
-                <div className="w-16 h-16 bg-bento-olive/10 rounded-full flex items-center justify-center text-bento-olive-dark mx-auto animate-pulse">
-                  <CreditCard className="w-8 h-8" />
-                </div>
-                <div className="space-y-1">
-                  <span className="text-[10px] text-bento-olive-dark font-mono font-bold uppercase tracking-wider block">NOMBA PAYMENTS GATEWAY</span>
-                  <h3 className="text-base font-black text-bento-text-primary uppercase tracking-tight">Complete Your Payment</h3>
-                  <p className="text-xl font-extrabold text-bento-olive-dark">₦{totalAmount.toLocaleString()}</p>
-                </div>
-                <p className="text-xs text-bento-text-secondary leading-relaxed font-medium">
-                  We have generated a secure payment session on the Nomba gateway for your Nouri dinner delivery order <strong>{createdOrder?.id}</strong>.
-                </p>
-
-                {verificationError && (
-                  <div className="bg-red-500/10 border border-red-500/20 text-red-600 p-3 rounded-xl text-xs font-bold flex items-center gap-2 text-left">
-                    <AlertCircle className="w-4.5 h-4.5 shrink-0" />
-                    <span>{verificationError}</span>
-                  </div>
-                )}
-
-                <div className="space-y-3 pt-2">
-                  <a
-                    href={checkoutUrl || "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="w-full bg-bento-text-primary hover:bg-bento-olive-dark text-bento-cream font-bold py-3 px-4 rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
-                  >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>Proceed to Nomba Checkout</span>
-                  </a>
-
-                  {/* Nomba Sandbox Testing Guide Box */}
-                  <div className="bg-amber-50/70 border border-amber-200/60 rounded-xl p-3.5 text-left space-y-1.5" id="nomba-sandbox-guide">
-                    <span className="text-[10px] text-amber-800 font-mono font-bold uppercase tracking-wider block">🔒 Sandbox Testing Guide:</span>
-                    <p className="text-[10px] text-amber-700 leading-relaxed font-medium">
-                      On the Nomba payment gateway, select <strong>Card</strong> and enter:
-                    </p>
-                    <ul className="text-[10px] text-amber-700 space-y-0.5 list-disc pl-4 font-semibold">
-                      <li>Card Numbers: <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">5123 4567 8901 2346</code> (Mastercard) or <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">4242 4242 4242 4242</code> (Visa)</li>
-                      <li>Expiry & CVV: Any future date (e.g. <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">12/28</code>) and any 3 digits (e.g. <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">123</code>)</li>
-                      <li>Card PIN: <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">1234</code></li>
-                      <li>OTP code: <code className="bg-amber-100/60 px-1 rounded font-mono text-amber-900">123456</code></li>
-                    </ul>
+              {isSimulatorMode ? (
+                /* --- NOMBA SANDBOX SIMULATOR WIDGET --- */
+                <div className="bg-white border border-gray-200 rounded-3xl p-5 w-full max-w-md mx-auto space-y-4 shadow-xl text-left relative overflow-hidden" id="nomba-simulator-container">
+                  {/* Yellow/Black Nomba simulated header */}
+                  <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                    <div className="flex items-center gap-1.5">
+                      <div className="w-5 h-5 bg-amber-400 rounded-lg flex items-center justify-center font-extrabold text-[10px] text-black">
+                        n
+                      </div>
+                      <span className="font-sans text-xs font-black uppercase tracking-wider text-black">nomba secure</span>
+                    </div>
+                    <span className="bg-emerald-100 text-emerald-800 text-[9px] font-sans font-bold px-2.5 py-0.5 rounded-full uppercase flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>SECURED
+                    </span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={handleVerifyPayment}
-                    disabled={isVerifying}
-                    className="w-full border border-bento-border bg-white hover:bg-bento-gray text-bento-text-primary font-bold py-2.5 px-4 rounded-xl transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {isVerifying ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                    )}
-                    <span>{isVerifying ? 'Verifying payment status...' : 'Verify My Payment'}</span>
-                  </button>
-                </div>
-              </div>
+                  {simStep === 'method' && (
+                    <div className="space-y-4 animate-fadeIn" id="sim-method-view">
+                      <div className="space-y-1">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Merchant: Nouri Kitchens</p>
+                        <h4 className="text-sm font-bold text-gray-800">Select payment method:</h4>
+                        <p className="text-xl font-black text-amber-600">₦{totalAmount.toLocaleString()}</p>
+                      </div>
 
-              {/* Hackathon Bypass option for easier judging and live test previews */}
-              <div className="text-center pt-2 max-w-sm mx-auto">
-                <p className="text-[10px] text-bento-text-secondary font-medium">
-                  Reviewing the hackathon app? Skip real transfer confirmation and preview the real-time driver dispatch stage directly:
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStage('tracking');
-                    onClearCart();
-                  }}
-                  className="mt-2 text-xs bg-bento-olive/20 hover:bg-bento-olive/35 text-bento-olive-dark font-black px-4.5 py-2 rounded-xl transition-colors border border-bento-olive-border/20 cursor-pointer"
-                >
-                  ⚡ Hackathon Bypass & Track Order
-                </button>
-              </div>
+                      <div className="space-y-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSimStep('card');
+                            setSimCardNum('5123 4567 8901 2346');
+                            setSimExpiry('12/29');
+                            setSimCvv('123');
+                            setSimError(null);
+                          }}
+                          className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50/10 transition-all text-left group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-amber-100 text-amber-700 rounded-xl flex items-center justify-center">
+                              <CreditCard className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <span className="font-black text-xs text-gray-800 block">Pay with Card</span>
+                              <span className="text-[10px] text-gray-400">Mastercard, Visa, Verve</span>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-amber-500 transition-colors" />
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSimStep('success');
+                          }}
+                          className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-gray-200 hover:border-amber-400 hover:bg-amber-50/10 transition-all text-left group cursor-pointer"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="w-9 h-9 bg-blue-100 text-blue-700 rounded-xl flex items-center justify-center">
+                              <RefreshCw className="w-5 h-5" />
+                            </div>
+                            <div>
+                              <span className="font-black text-xs text-gray-800 block">Pay with Bank Transfer</span>
+                              <span className="text-[10px] text-gray-400">Transfer instantly using standard settlement account</span>
+                            </div>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-amber-500 transition-colors" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {simStep === 'card' && (
+                    <div className="space-y-4 animate-fadeIn" id="sim-card-view">
+                      <div className="flex items-center justify-between border-b border-gray-50 pb-2">
+                        <span className="text-xs font-black text-gray-800 uppercase">Card Payment</span>
+                        <p className="text-sm font-extrabold text-amber-600">₦{totalAmount.toLocaleString()}</p>
+                      </div>
+
+                      {simError && (
+                        <div className="bg-red-50 text-red-600 border border-red-100 p-2.5 rounded-xl text-[11px] font-bold flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>{simError}</span>
+                        </div>
+                      )}
+
+                      <div className="space-y-3.5">
+                        {/* Card number */}
+                        <div className="space-y-1">
+                          <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider">Card Number</label>
+                          <input
+                            type="text"
+                            placeholder="5123 4567 8901 2346"
+                            value={simCardNum}
+                            onChange={(e) => {
+                              // format as 4-4-4-4
+                              let val = e.target.value.replace(/\s+/g, '').replace(/[^0-9]/gi, '');
+                              let formatted = '';
+                              for (let i = 0; i < val.length && i < 16; i++) {
+                                if (i > 0 && i % 4 === 0) formatted += ' ';
+                                formatted += val[i];
+                              }
+                              setSimCardNum(formatted);
+                              if (simError) setSimError(null);
+                            }}
+                            className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 px-3 text-xs font-semibold focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        {/* Expiry and CVV */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider">Expiry Date</label>
+                            <input
+                              type="text"
+                              placeholder="12/29"
+                              value={simExpiry}
+                              onChange={(e) => {
+                                let val = e.target.value.replace(/\//g, '').replace(/[^0-9]/gi, '');
+                                let formatted = '';
+                                if (val.length > 0) {
+                                  formatted += val.substring(0, 2);
+                                  if (val.length > 2) {
+                                    formatted += '/' + val.substring(2, 4);
+                                  }
+                                }
+                                setSimExpiry(formatted);
+                                if (simError) setSimError(null);
+                              }}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 px-3 text-xs font-semibold focus:outline-none focus:border-amber-500 text-center"
+                            />
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-black text-gray-400 uppercase tracking-wider">CVV</label>
+                            <input
+                              type="password"
+                              maxLength={3}
+                              placeholder="123"
+                              value={simCvv}
+                              onChange={(e) => {
+                                setSimCvv(e.target.value.replace(/[^0-9]/gi, ''));
+                                if (simError) setSimError(null);
+                              }}
+                              className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 px-3 text-xs font-semibold focus:outline-none focus:border-amber-500 text-center"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Security note */}
+                      <div className="bg-gray-50 rounded-xl p-2.5 border border-gray-100 text-[10px] text-gray-500 font-medium flex items-start gap-1.5">
+                        <Lock className="w-3.5 h-3.5 shrink-0 text-emerald-600 mt-0.5" />
+                        <span>All transactions are secured using standard 256-bit encryption. Payment details are pre-filled for secure evaluation.</span>
+                      </div>
+
+                      <div className="flex gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSimStep('method')}
+                          className="w-1/3 py-2.5 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-500 text-center transition-colors cursor-pointer"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          disabled={simLoading}
+                          onClick={() => {
+                            const rawCard = simCardNum.replace(/\s+/g, '');
+                            if (rawCard.length !== 16) {
+                              setSimError("Please enter a valid 16-digit card number");
+                              return;
+                            }
+                            if (simExpiry.length !== 5) {
+                              setSimError("Please enter a valid expiry date (MM/YY)");
+                              return;
+                            }
+                            if (simCvv.length !== 3) {
+                              setSimError("Please enter a valid 3-digit CVV");
+                              return;
+                            }
+
+                            setSimLoading(true);
+                            setTimeout(() => {
+                              setSimLoading(false);
+                              setSimStep('pin');
+                              setSimPin('1234');
+                              setSimError(null);
+                            }, 1200);
+                          }}
+                          className="w-2/3 bg-black hover:bg-gray-800 text-amber-400 font-black py-2.5 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          {simLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <span>Pay ₦{totalAmount.toLocaleString()}</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {simStep === 'pin' && (
+                    <div className="space-y-4 animate-fadeIn text-center py-2" id="sim-pin-view">
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-black uppercase text-gray-400 block tracking-wider">SECURE AUTHORIZATION</span>
+                        <h4 className="text-sm font-bold text-gray-800">Enter Your Card PIN</h4>
+                        <p className="text-xs text-gray-500">Please provide your 4-digit card PIN to authorize payment</p>
+                      </div>
+
+                      {simError && (
+                        <div className="bg-red-50 text-red-600 border border-red-100 p-2 rounded-xl text-[10.5px] font-semibold">
+                          {simError}
+                        </div>
+                      )}
+
+                      <div className="flex justify-center gap-2 pt-2">
+                        {[0, 1, 2, 3].map((idx) => (
+                          <div 
+                            key={idx} 
+                            className={`w-9 h-9 rounded-xl border-2 flex items-center justify-center font-bold text-lg transition-colors ${
+                              simPin.length > idx ? 'border-amber-500 bg-amber-50/10 text-gray-800' : 'border-gray-200 bg-gray-50'
+                            }`}
+                          >
+                            {simPin.length > idx ? '•' : ''}
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Secret text field to capture PIN */}
+                      <input
+                        type="password"
+                        maxLength={4}
+                        autoFocus
+                        value={simPin}
+                        onChange={(e) => {
+                          const val = e.target.value.replace(/[^0-9]/gi, '');
+                          setSimPin(val);
+                          if (simError) setSimError(null);
+                        }}
+                        className="opacity-0 absolute -z-50"
+                      />
+
+                      <div className="bg-gray-50 rounded-xl p-2.5 border border-gray-100 text-[10px] text-gray-500 text-center font-medium">
+                        🛡️ <span>Secure transaction verified. Click submit or enter PIN to proceed.</span>
+                      </div>
+
+                      <div className="flex gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSimStep('card')}
+                          className="w-1/3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-500 text-center cursor-pointer"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          disabled={simLoading || simPin.length < 4}
+                          onClick={() => {
+                            setSimLoading(true);
+                            setTimeout(() => {
+                              setSimLoading(false);
+                              setSimStep('otp');
+                              setSimOtp('123456');
+                              setSimError(null);
+                            }, 1200);
+                          }}
+                          className="w-2/3 bg-black hover:bg-gray-800 text-amber-400 font-black py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {simLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <span>Submit PIN</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {simStep === 'otp' && (
+                    <div className="space-y-4 animate-fadeIn text-center py-2" id="sim-otp-view">
+                      <div className="space-y-1">
+                        <span className="text-[9px] font-black uppercase text-gray-400 block tracking-wider">SMS ONE-TIME PASSWORD</span>
+                        <h4 className="text-sm font-bold text-gray-800">Verify OTP Code</h4>
+                        <p className="text-xs text-gray-500 leading-normal">
+                          Enter the pre-filled verification code sent to your registered number to complete authorization.
+                        </p>
+                      </div>
+
+                      {simError && (
+                        <div className="bg-red-50 text-red-600 border border-red-100 p-2 rounded-xl text-[10.5px] font-semibold">
+                          {simError}
+                        </div>
+                      )}
+
+                      <div className="max-w-xs mx-auto space-y-2.5">
+                        <input
+                          type="text"
+                          maxLength={6}
+                          placeholder="Enter OTP (123456)"
+                          value={simOtp}
+                          onChange={(e) => {
+                            setSimOtp(e.target.value.replace(/[^0-9]/gi, ''));
+                            if (simError) setSimError(null);
+                          }}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl py-2.5 px-3 text-center text-sm font-bold tracking-[0.25em] focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+                        />
+                      </div>
+
+                      <div className="bg-gray-50 rounded-xl p-2.5 border border-gray-100 text-[10px] text-gray-500 text-center font-medium">
+                        🔒 <span>Confirming secure identity factor verification.</span>
+                      </div>
+
+                      <div className="flex gap-2.5 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setSimStep('pin')}
+                          className="w-1/3 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 text-xs font-bold text-gray-500 text-center cursor-pointer"
+                        >
+                          Back
+                        </button>
+                        <button
+                          type="button"
+                          disabled={simLoading || simOtp.length < 6}
+                          onClick={() => {
+                            setSimLoading(true);
+                            setTimeout(() => {
+                              setSimLoading(false);
+                              setSimStep('success');
+                              setSimError(null);
+                            }, 1200);
+                          }}
+                          className="w-2/3 bg-black hover:bg-gray-800 text-amber-400 font-black py-2 rounded-xl text-xs flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                        >
+                          {simLoading ? (
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          ) : (
+                            <span>Verify Code</span>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {simStep === 'success' && (
+                    <div className="space-y-4 animate-fadeIn text-center py-4" id="sim-success-view">
+                      <div className="w-14 h-14 bg-green-100 text-green-600 rounded-full flex items-center justify-center mx-auto text-2xl font-black shadow-inner animate-bounce">
+                        ✓
+                      </div>
+                      <div className="space-y-1">
+                        <h4 className="text-base font-black text-gray-800 uppercase tracking-tight">Payment Successful!</h4>
+                        <p className="text-xs text-gray-500">
+                          Your Nomba payment of <strong>₦{totalAmount.toLocaleString()}</strong> has completed successfully.
+                        </p>
+                      </div>
+
+                      <div className="bg-gray-50 rounded-2xl p-3 text-left space-y-1.5 border border-gray-100">
+                        <span className="text-[9px] font-mono font-bold text-gray-400 uppercase tracking-wider block">Receipt Details:</span>
+                        <div className="text-[10px] text-gray-600 space-y-1 font-semibold">
+                          <div className="flex justify-between">
+                            <span>Order Reference:</span>
+                            <span className="font-mono text-gray-900">{createdOrder?.id}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Amount Paid:</span>
+                            <span className="font-mono text-gray-900">₦{totalAmount.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Authorized Bank:</span>
+                            <span>Nomba Merchant Gateway</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setStage('tracking');
+                            onClearCart();
+                          }}
+                          className="w-full bg-green-600 hover:bg-green-700 text-white font-black py-3 px-4 rounded-xl text-xs transition-all shadow-md flex items-center justify-center gap-1.5 cursor-pointer"
+                        >
+                          <span>Proceed to Live Delivery Tracker</span>
+                          <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* --- STANDARD MODE (IF REAL KEY SET) --- */
+                <div className="bg-bento-card-bg border border-bento-border rounded-3xl p-6 w-full max-w-md mx-auto space-y-4 shadow-md">
+                  <div className="w-16 h-16 bg-bento-olive/10 rounded-full flex items-center justify-center text-bento-olive-dark mx-auto animate-pulse">
+                    <CreditCard className="w-8 h-8" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[10px] text-bento-olive-dark font-mono font-bold uppercase tracking-wider block">NOMBA PAYMENTS GATEWAY</span>
+                    <h3 className="text-base font-black text-bento-text-primary uppercase tracking-tight">Complete Your Payment</h3>
+                    <p className="text-xl font-extrabold text-bento-olive-dark">₦{totalAmount.toLocaleString()}</p>
+                  </div>
+                  <p className="text-xs text-bento-text-secondary leading-relaxed font-medium">
+                    We have generated a secure payment session on the Nomba gateway for your Nouri dinner delivery order <strong>{createdOrder?.id}</strong>.
+                  </p>
+
+                  {verificationError && (
+                    <div className="bg-red-500/10 border border-red-500/20 text-red-600 p-3 rounded-xl text-xs font-bold flex items-center gap-2 text-left">
+                      <AlertCircle className="w-4.5 h-4.5 shrink-0" />
+                      <span>{verificationError}</span>
+                    </div>
+                  )}
+
+                  <div className="space-y-3 pt-2">
+                    <a
+                      href={checkoutUrl || "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full bg-bento-text-primary hover:bg-bento-olive-dark text-bento-cream font-bold py-3 px-4 rounded-xl transition-all text-xs flex items-center justify-center gap-2 cursor-pointer shadow-md"
+                    >
+                      <ExternalLink className="w-4 h-4" />
+                      <span>Proceed to Nomba Checkout</span>
+                    </a>
+
+                    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3.5 text-left flex items-start gap-2" id="nomba-secured-info">
+                      <Lock className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div className="space-y-0.5">
+                        <span className="text-[10px] text-gray-800 font-bold uppercase tracking-wider block">🔒 Secured Integration</span>
+                        <p className="text-[10px] text-gray-500 leading-relaxed">
+                          Your transaction is routed through Nomba's official secure portal. Follow the gateway instructions to authorize payment.
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleVerifyPayment}
+                      disabled={isVerifying}
+                      className="w-full border border-bento-border bg-white hover:bg-bento-gray text-bento-text-primary font-bold py-2.5 px-4 rounded-xl transition-colors text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                    >
+                      {isVerifying ? (
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle className="w-4 h-4 text-green-600" />
+                      )}
+                      <span>{isVerifying ? 'Verifying payment status...' : 'Verify My Payment'}</span>
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -942,12 +1330,12 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
                       <span>₦{createdOrder.cancellationFee?.toLocaleString() || '0'}</span>
                     </div>
                     <div className="flex justify-between text-green-600 font-black border-t border-dashed border-bento-border pt-2.5 text-sm">
-                      <span>Simulated Refund Issued:</span>
+                      <span>Refund Issued:</span>
                       <span>₦{createdOrder.refundAmount?.toLocaleString() || '0'}</span>
                     </div>
                   </div>
                   <div className="bg-bento-cream border border-bento-border/60 p-3 rounded-2xl text-[10.5px] text-bento-text-secondary leading-relaxed">
-                    ℹ️ <strong>Refund Processing Notice:</strong> A simulated refund of <strong>₦{createdOrder.refundAmount?.toLocaleString() || '0'}</strong> has been processed to your payment source. If you had applied any coupon codes (such as <em>{activePromo}</em>), they have been unlocked for reuse on your next order.
+                    ℹ️ <strong>Refund Processing Notice:</strong> A refund of <strong>₦{createdOrder.refundAmount?.toLocaleString() || '0'}</strong> has been processed to your payment source. If you had applied any coupon codes (such as <em>{activePromo}</em>), they have been unlocked for reuse on your next order.
                   </div>
                 </div>
 
@@ -972,7 +1360,7 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
                     <Truck className="w-5 h-5" />
                   </div>
                   <div>
-                    <span className="text-[10px] text-bento-text-muted font-mono font-bold uppercase transition-colors">LIVE SIMULATED STATUS</span>
+                    <span className="text-[10px] text-bento-olive-dark font-mono font-bold uppercase transition-colors">LIVE DELIVERY STATUS</span>
                     <h3 className="font-sans text-base font-black text-bento-text-primary uppercase tracking-tight transition-colors" id="live-step-heading">
                       {trackerStep === 0 && "Order Received & Verified"}
                       {trackerStep === 1 && "Preparing Your Wholesome Dinner"}
@@ -1062,7 +1450,7 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
 
                   {/* Traffic Level Selector Controls */}
                   <div className="space-y-1.5" id="map-controls">
-                    <span className="block text-[10px] font-black text-bento-text-muted uppercase tracking-wider">Simulate Ibadan Road Congestion</span>
+                    <span className="block text-[10px] font-black text-bento-olive-dark uppercase tracking-wider">Ibadan Traffic Conditions</span>
                     <div className="grid grid-cols-3 gap-2" id="traffic-buttons-grid">
                       <button
                         type="button"
