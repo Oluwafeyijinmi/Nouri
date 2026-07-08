@@ -862,6 +862,14 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                               <div className="space-y-1 text-bento-text-primary">
                                 <p><span className="font-medium text-bento-text-secondary">Address:</span> {order.customer.address}</p>
                                 {order.customer.landmark && <p><span className="font-medium text-bento-text-secondary">Landmark:</span> {order.customer.landmark}</p>}
+                                {order.customer.googleMapsLink && (
+                                  <p>
+                                    <span className="font-medium text-bento-text-secondary">Map:</span>{' '}
+                                    <a href={order.customer.googleMapsLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                                      Open in Google Maps
+                                    </a>
+                                  </p>
+                                )}
                                 <p><span className="font-medium text-bento-text-secondary">Phone:</span> {order.customer.phone}</p>
                                 <p><span className="font-medium text-bento-text-secondary">Time:</span> {order.customer.deliveryTime}</p>
                                 {order.customer.deliveryInstructions && (
@@ -942,7 +950,12 @@ export default function AdminDashboard({ isOpen, onClose }: AdminDashboardProps)
                                   </span>
                                 </div>
                                 <p className="font-medium text-bento-text-primary truncate">{o.customer.name}</p>
-                                <p className="text-bento-text-muted truncate mb-2">{o.customer.address}</p>
+                                <p className="text-bento-text-muted truncate mb-1">{o.customer.address}</p>
+                                {o.customer.googleMapsLink && (
+                                  <a href={o.customer.googleMapsLink} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline mb-2 inline-block text-[10px]">
+                                    Open Map
+                                  </a>
+                                )}
                                 <div className="space-y-1">
                                   {o.items.map((it, i) => (
                                     <div key={i} className="flex justify-between border-t border-bento-border/50 pt-1">

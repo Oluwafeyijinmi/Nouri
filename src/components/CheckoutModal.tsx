@@ -23,6 +23,7 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
     phone: '',
     address: '',
     landmark: '',
+    googleMapsLink: '',
     deliveryInstructions: '',
     deliveryTime: '4:30 PM - 6:00 PM',
   });
@@ -113,6 +114,7 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
               phone: p.phone || prev.phone,
               address: p.address || prev.address,
               landmark: p.landmark || prev.landmark || '',
+              googleMapsLink: p.googleMapsLink || prev.googleMapsLink || '',
               deliveryInstructions: p.deliveryInstructions || prev.deliveryInstructions || '',
               deliveryTime: p.deliveryTime || prev.deliveryTime,
             }));
@@ -342,6 +344,7 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
           phone: formData.phone,
           address: formData.address,
           landmark: formData.landmark || '',
+          googleMapsLink: formData.googleMapsLink || '',
           deliveryInstructions: formData.deliveryInstructions || '',
           deliveryTime: formData.deliveryTime,
           email: user.email || 'guest@nouri.delivery'
@@ -550,6 +553,31 @@ export default function CheckoutModal({ isOpen, onClose, cart, onClearCart }: Ch
                     onChange={handleInputChange}
                     className="w-full bg-bento-card-bg text-bento-text-primary border border-bento-border rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-bento-olive-dark transition-colors"
                     id="checkout-input-landmark"
+                  />
+                </div>
+
+                {/* Google Maps Link */}
+                <div className="space-y-1 sm:col-span-2" id="field-google-maps-container">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-bento-text-muted uppercase tracking-wider transition-colors">Google Maps Link (Optional)</label>
+                    <a 
+                      href="https://maps.google.com" 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-[10px] flex items-center gap-1 text-blue-600 hover:text-blue-800 font-bold bg-blue-50 px-2 py-0.5 rounded-md"
+                      title="Open Google Maps to find and share your location"
+                    >
+                      <MapPin className="w-3 h-3" /> Open Maps
+                    </a>
+                  </div>
+                  <input
+                    type="url"
+                    name="googleMapsLink"
+                    placeholder="e.g. https://maps.app.goo.gl/..."
+                    value={formData.googleMapsLink}
+                    onChange={handleInputChange}
+                    className="w-full bg-bento-card-bg text-bento-text-primary border border-bento-border rounded-2xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-bento-olive-dark transition-colors"
+                    id="checkout-input-google-maps"
                   />
                 </div>
 

@@ -41,6 +41,7 @@ export interface CustomerDetails {
   phone: string;
   address: string;
   landmark?: string;
+  googleMapsLink?: string; // e.g. shared from Google Maps
   deliveryInstructions?: string; // e.g. "Leave with gatekeeper", "Call upon arrival"
   deliveryTime: string;          // e.g. "4:30 PM - 6:00 PM", "6:00 PM - 7:30 PM", "7:30 PM - 9:00 PM"
   plannedDay?: string;
